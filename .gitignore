@@ -1,0 +1,28 @@
+# Байт-код Python и кэш
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
+
+# База данных SQLite (содержит рабочие данные и пароли!)
+*.db
+instance/
+
+# Настройки сред разработки (IDE)
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Системные файлы Gemini Antigravity
+.gemini/
+.agents/
+.DS_Store

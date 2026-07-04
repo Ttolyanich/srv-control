@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд вычислений | SRV-Control{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Вычислительные ресурсы</h1>
+        <p class="page-subtitle">Обзор выделенных по конфигурации ресурсов виртуальных машин на гипервизорах</p>
+    </div>
+    {% if current_user.role in ['admin', 'financier'] %}
+    <div class="actions">
+        <button class="btn btn-primary" id="sync-all-btn" onclick="syncAllServers()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Синхронизировать всё
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Global Overcommit Warnings -->
+{% if global_metrics.pct.cpu > 100 or global_metrics.pct.ram > 100 %}
+<div class="overcommit-warning">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    <span>
+        <strong>Внимание!</strong> Обнаружен оверкоммит физических ресурсов: 
+        {% if global_metrics.pct.cpu > 100 %} CPU выделено по конфигу на {{ global_metrics.pct.cpu }}% {% endif %}
+        {% if global_metrics.pct.ram > 100 %} {% if global_metrics.pct.cpu > 100 %}и{% endif %} RAM выделено по конфигу на {{ global_metrics.pct.ram }}% {% endif %}
+         от номинальной мощности.
+    </span>
+</div>
+{% endif %}
+
+<!-- Metrics Dashboard -->
+<div class="metrics-grid">
+    <!-- CPU Metric -->
+    <div class="metric-card">
+        <div class="metric-icon red">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="4" width="16" height="16" rx="2"/>
+                <rect x="9" y="9" width="6" height="6"/>
+                <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/>
+            </svg>
+        </div>
+        <div class="metric-info">
+            <span class="metric-value">{{ global_metrics.total_alloc.cpu }} / {{ global_metrics.total_phys.cpu }}</span>
+            <span class="metric-label">CPU (Конфиг / Физический) ({{ global_metrics.pct.cpu }}%)</span>
+        </div>
+    </div>
+    
+    <!-- RAM Metric -->
+    <div class="metric-card">
+        <div class="metric-icon blue">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 2v20M18 2v20M6 6h12M6 12h12M6 18h12"/>
+            </svg>
+        </div>
+        <div class="metric-info">
+            <span class="metric-value">{{ global_metrics.total_alloc.ram }} / {{ global_metrics.total_phys.ram }} ГБ</span>
+            <span class="metric-label">RAM (Конфиг / Физическая) ({{ global_metrics.pct.ram }}%)</span>
+        </div>
+    </div>
+
+    <!-- SSD Metric -->
+    <div class="metric-card">
+        <div class="metric-icon cyan">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                <line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+        </div>
+        <div class="metric-info">
+            <span class="metric-value">{{ global_metrics.total_alloc.ssd }} / {{ global_metrics.total_phys.ssd }} ГБ</span>
+            <span class="metric-label">SSD (Конфиг / Физический) ({{ global_metrics.pct.ssd }}%)</span>
+        </div>
+    </div>
+
+    <!-- HDD Metric -->
+    <div class="metric-card">
+        <div class="metric-icon warning">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
+            </svg>
+        </div>
+        <div class="metric-info">
+            <span class="metric-value">{{ global_metrics.total_alloc.hdd }} / {{ global_metrics.total_phys.hdd }} ГБ</span>
+            <span class="metric-label">HDD (Конфиг / Физический) ({{ global_metrics.pct.hdd }}%)</span>
+        </div>
+    </div>
+</div>
+
+<!-- Clusters Section -->
+{% if clusters %}
+    {% for c in clusters %}
+    <div class="cluster-group" style="margin-bottom: 44px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid var(--accent-red); padding-bottom: 10px;">
+            <h2 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 20px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 10px; margin: 0; cursor: pointer; user-select: none;">
+                <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red); flex-shrink: 0;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                Кластер: {{ c.cluster.name }}
+            </h2>
+            {% if current_user.role == 'admin' %}
+            <button class="btn btn-secondary btn-sm" onclick="syncServer({{ c.cluster.id }}, this)" style="padding: 6px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+                Синхронизировать кластер
+            </button>
+            {% endif %}
+        </div>
+        
+        <div class="card-grid">
+            {% for s_data in c.nodes %}
+            {% set s = s_data.server %}
+            <div class="card" id="server-card-{{ s.id }}">
+                <div class="card-title">
+                    <a href="{{ url_for('server_detail', server_id=s.id) }}" style="color: var(--text-primary); text-decoration: none; font-weight: 700;">
+                        {{ s.name }}
+                    </a>
+                    <div>
+                        {% if s.status == 'online' %}
+                            <span class="badge badge-online"><span class="status-dot online"></span>{{ s.type.upper() }}</span>
+                        {% elif s.status == 'offline' %}
+                            <span class="badge badge-offline"><span class="status-dot offline"></span>{{ s.type.upper() }}</span>
+                        {% else %}
+                            <span class="badge badge-unknown"><span class="status-dot unknown"></span>{{ s.type.upper() }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; display: flex; justify-content: space-between;">
+                    <span>IP: {{ s.ip_address or 'Локальный' }}</span>
+                    <span style="font-size: 11px; color: var(--text-muted);">
+                        Синхр: {% if s.last_sync %}{{ s.last_sync.strftime('%d.%m %H:%M') }}{% else %}нет{% endif %}
+                    </span>
+                </p>
+
+                <div class="resource-bar-group">
+                    <!-- CPU Bar -->
+                    <div class="resource-bar-wrapper-item">
+                        <div class="resource-bar-label">
+                            <span>CPU (Конфигурация)</span>
+                            <span>{{ s_data.allocated.cpu }} / {{ s.cpu }} ядер ({{ s_data.usage_pct.cpu }}%)</span>
+                        </div>
+                        <div class="resource-bar-wrapper">
+                            <div class="resource-bar-fill {% if s_data.usage_pct.cpu >= 95 %}danger{% elif s_data.usage_pct.cpu >= 70 %}warning{% endif %}" style="width: {{ min(s_data.usage_pct.cpu, 100) }}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- RAM Bar -->
+                    <div class="resource-bar-wrapper-item">
+                        <div class="resource-bar-label">
+                            <span>RAM (Конфигурация)</span>
+                            <span>{{ s_data.allocated.ram }} / {{ s.ram }} ГБ ({{ s_data.usage_pct.ram }}%)</span>
+                        </div>
+                        <div class="resource-bar-wrapper">
+                            <div class="resource-bar-fill {% if s_data.usage_pct.ram >= 95 %}danger{% elif s_data.usage_pct.ram >= 70 %}warning{% endif %}" style="width: {{ min(s_data.usage_pct.ram, 100) }}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- SSD Bar -->
+                    {% set ssd_pct = round((s_data.allocated.ssd / s.ssd * 100) if s.ssd > 0 else 0, 1) %}
+                    <div class="resource-bar-wrapper-item">
+                        <div class="resource-bar-label">
+                            <span>SSD (Конфигурация)</span>
+                            <span>{{ s_data.allocated.ssd }} / {{ s.ssd }} ГБ ({{ ssd_pct }}%)</span>
+                        </div>
+                        <div class="resource-bar-wrapper">
+                            <div class="resource-bar-fill {% if ssd_pct >= 95 %}danger{% elif ssd_pct >= 70 %}warning{% endif %}" style="width: {{ min(ssd_pct, 100) }}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- HDD Bar -->
+                    {% set hdd_pct = round((s_data.allocated.hdd / s.hdd * 100) if s.hdd > 0 else 0, 1) %}
+                    <div class="resource-bar-wrapper-item">
+                        <div class="resource-bar-label">
+                            <span>HDD (Конфигурация)</span>
+                            <span>{{ s_data.allocated.hdd }} / {{ s.hdd }} ГБ ({{ hdd_pct }}%)</span>
+                        </div>
+                        <div class="resource-bar-wrapper">
+                            <div class="resource-bar-fill {% if hdd_pct >= 95 %}danger{% elif hdd_pct >= 70 %}warning{% endif %}" style="width: {{ min(hdd_pct, 100) }}%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px; display: flex; gap: 12px;">
+                    {% if current_user.role == 'admin' %}
+                        <a href="{{ url_for('server_detail', server_id=s.id) }}" class="btn btn-secondary btn-sm" style="flex: 1;">Управление ВМ</a>
+                    {% else %}
+                        <a href="{{ url_for('server_detail', server_id=s.id) }}" class="btn btn-secondary btn-sm" style="flex: 1;">Просмотр ВМ</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Standalone Servers Section -->
+{% if standalone or (not clusters and not standalone) %}
+<div class="cluster-group">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid var(--border-color); padding-bottom: 10px;">
+        <h2 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 20px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 10px; margin: 0; cursor: pointer; user-select: none;">
+            <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); flex-shrink: 0;"><rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect><path d="M12 18v-6M12 8h.01"/></svg>
+            Одиночные серверы (ручной учет)
+        </h2>
+    </div>
+    
+    <div class="card-grid">
+        {% for s_data in standalone %}
+        {% set s = s_data.server %}
+        <div class="card" id="server-card-{{ s.id }}">
+            <div class="card-title">
+                <a href="{{ url_for('server_detail', server_id=s.id) }}" style="color: var(--text-primary); text-decoration: none; font-weight: 700;">
+                    {{ s.name }}
+                </a>
+                <div>
+                    <span class="badge badge-unknown"><span class="status-dot unknown"></span>MANUAL</span>
+                </div>
+            </div>
+            
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                <span>IP: {{ s.ip_address or 'Локальный' }}</span>
+            </p>
+
+            <div class="resource-bar-group">
+                <!-- CPU Bar -->
+                <div class="resource-bar-wrapper-item">
+                    <div class="resource-bar-label">
+                        <span>CPU (Конфигурация)</span>
+                        <span>{{ s_data.allocated.cpu }} / {{ s.cpu }} ядер ({{ s_data.usage_pct.cpu }}%)</span>
+                    </div>
+                    <div class="resource-bar-wrapper">
+                        <div class="resource-bar-fill {% if s_data.usage_pct.cpu >= 95 %}danger{% elif s_data.usage_pct.cpu >= 70 %}warning{% endif %}" style="width: {{ min(s_data.usage_pct.cpu, 100) }}%"></div>
+                    </div>
+                </div>
+
+                <!-- RAM Bar -->
+                <div class="resource-bar-wrapper-item">
+                    <div class="resource-bar-label">
+                        <span>RAM (Конфигурация)</span>
+                        <span>{{ s_data.allocated.ram }} / {{ s.ram }} ГБ ({{ s_data.usage_pct.ram }}%)</span>
+                    </div>
+                    <div class="resource-bar-wrapper">
+                        <div class="resource-bar-fill {% if s_data.usage_pct.ram >= 95 %}danger{% elif s_data.usage_pct.ram >= 70 %}warning{% endif %}" style="width: {{ min(s_data.usage_pct.ram, 100) }}%"></div>
+                    </div>
+                </div>
+
+                <!-- SSD Bar -->
+                {% set ssd_pct = round((s_data.allocated.ssd / s.ssd * 100) if s.ssd > 0 else 0, 1) %}
+                <div class="resource-bar-wrapper-item">
+                    <div class="resource-bar-label">
+                        <span>SSD (Конфигурация)</span>
+                        <span>{{ s_data.allocated.ssd }} / {{ s.ssd }} ГБ ({{ ssd_pct }}%)</span>
+                    </div>
+                    <div class="resource-bar-wrapper">
+                        <div class="resource-bar-fill {% if ssd_pct >= 95 %}danger{% elif ssd_pct >= 70 %}warning{% endif %}" style="width: {{ min(ssd_pct, 100) }}%"></div>
+                    </div>
+                </div>
+
+                <!-- HDD Bar -->
+                {% set hdd_pct = round((s_data.allocated.hdd / s.hdd * 100) if s.hdd > 0 else 0, 1) %}
+                <div class="resource-bar-wrapper-item">
+                    <div class="resource-bar-label">
+                        <span>HDD (Конфигурация)</span>
+                        <span>{{ s_data.allocated.hdd }} / {{ s.hdd }} ГБ ({{ hdd_pct }}%)</span>
+                    </div>
+                    <div class="resource-bar-wrapper">
+                        <div class="resource-bar-fill {% if hdd_pct >= 95 %}danger{% elif hdd_pct >= 70 %}warning{% endif %}" style="width: {{ min(hdd_pct, 100) }}%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 24px; display: flex; gap: 12px;">
+                {% if current_user.role == 'admin' %}
+                    <a href="{{ url_for('server_detail', server_id=s.id) }}" class="btn btn-secondary btn-sm" style="flex: 1;">Управление ВМ</a>
+                {% else %}
+                    <a href="{{ url_for('server_detail', server_id=s.id) }}" class="btn btn-secondary btn-sm" style="flex: 1;">Просмотр ВМ</a>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-secondary);">
+            <p>Нет зарегистрированных одиночных серверов. 
+                {% if current_user.role == 'admin' %}
+                Перейдите в раздел настроек, чтобы добавить сервер.
+                {% endif %}
+            </p>
+            {% if current_user.role == 'admin' %}
+            <a href="{{ url_for('settings') }}" class="btn btn-primary" style="margin-top: 16px;">Добавить сервер</a>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  srv-control:
+    image: ghcr.io/ttolyanich/srv-control:latest
+    container_name: srv-control
+    ports:
+      - "5002:5002"
+    volumes:
+      # Важно: монтируем папку с базой данных SQLite на хост, чтобы данные сохранялись при перезапуске контейнера
+      - ./instance:/app/instance
+    restart: always
+    environment:
+      - FLASK_ENV=production
+      # Рекомендуется переопределить секретный ключ в целях безопасности
+      - SECRET_KEY=srv_control_secure_token_key_change_me_in_prod
