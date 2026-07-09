@@ -19,7 +19,7 @@
 
 {% for s_data in servers %}
 {% set s = s_data.server %}
-<div class="card cluster-group" style="margin-bottom: 36px; padding: 30px;">
+<div class="card cluster-group" data-server-id="{{ s.id }}" style="margin-bottom: 36px; padding: 30px;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
         <div>
             <h2 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 22px; font-weight: 600; color: var(--text-primary); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; margin: 0;">

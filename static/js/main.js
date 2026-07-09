@@ -232,8 +232,8 @@ function syncServer(serverId, button) {
             if (result.status === 200 && result.body) {
                 showToast(result.body.message, 'success');
                 setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
+                    refreshCurrentPageContent();
+                }, 500);
             } else if (result.body) {
                 showToast(`Ошибка: ${result.body.message}`, 'error');
                 button.disabled = false;
@@ -298,8 +298,8 @@ function syncAllServers() {
                 }
                 
                 setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
+                    refreshCurrentPageContent();
+                }, 500);
             } else if (result.body) {
                 showToast(`Ошибка: ${result.body.message}`, 'error');
                 btn.disabled = false;
@@ -316,6 +316,79 @@ function syncAllServers() {
             showToast(`Сетевая ошибка: ${error}`, 'error');
             btn.disabled = false;
             btn.innerHTML = originalHtml;
+        });
+}
+
+function refreshCurrentPageContent() {
+    // Сохраняем позицию скролла и список свернутых серверов перед обновлением
+    const scrollY = window.scrollY;
+    const collapsedIds = Array.from(document.querySelectorAll('.cluster-group.collapsed'))
+        .map(el => el.getAttribute('data-server-id'))
+        .filter(Boolean);
+
+    fetch(window.location.href)
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            
+            const currentContent = document.querySelector('.main-content');
+            const newContent = doc.querySelector('.main-content');
+            
+            if (currentContent && newContent) {
+                // Сохраняем состояние вкладки и поиска перед обновлением
+                const activeTab = document.querySelector('.tab-btn.active');
+                const activeTabId = activeTab ? activeTab.getAttribute('onclick').match(/'([^']+)'/)[1] : null;
+                const searchInput = document.getElementById('pricing-search-input');
+                const searchVal = searchInput ? searchInput.value : null;
+                
+                const quotasSearchInput = document.getElementById('search-input');
+                const quotasSearchVal = quotasSearchInput ? quotasSearchInput.value : null;
+                
+                // Заменяем контент страницы
+                currentContent.innerHTML = newContent.innerHTML;
+                
+                // Восстанавливаем свернутые состояния серверов
+                collapsedIds.forEach(id => {
+                    const el = document.querySelector(`.cluster-group[data-server-id="${id}"]`);
+                    if (el) {
+                        el.classList.add('collapsed');
+                    }
+                });
+                
+                // Восстанавливаем состояние вкладки
+                if (activeTabId) {
+                    const tabBtn = document.querySelector(`[onclick*="${activeTabId}"]`);
+                    if (tabBtn) {
+                        tabBtn.click();
+                    }
+                }
+                
+                // Восстанавливаем поисковый запрос и фильтруем в ценообразовании
+                const newSearchInput = document.getElementById('pricing-search-input');
+                if (newSearchInput && searchVal) {
+                    newSearchInput.value = searchVal;
+                    if (typeof filterPricing === 'function') {
+                        filterPricing();
+                    }
+                }
+                
+                // Восстанавливаем поиск и фильтр на странице квот
+                const newQuotasSearchInput = document.getElementById('search-input');
+                if (newQuotasSearchInput && quotasSearchVal) {
+                    newQuotasSearchInput.value = quotasSearchVal;
+                    if (typeof filterQuotas === 'function') {
+                        filterQuotas();
+                    }
+                }
+                
+                // Восстанавливаем скролл
+                window.scrollTo(0, scrollY);
+            }
+        })
+        .catch(err => {
+            console.error("Error refreshing page content:", err);
+            window.location.reload();
         });
 }
 
