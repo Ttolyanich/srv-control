@@ -19,6 +19,20 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'srv_control_secret_key_
 # Инициализация базы данных
 db.init_app(app)
 
+# Настройка SQLite для повышения производительности и устранения блокировок (WAL-режим)
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+import sqlite3
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
 # Регистрация стандартных функций в шаблонах Jinja2
 app.jinja_env.globals.update(min=min, max=max, round=round)
 
@@ -636,10 +650,8 @@ def pricing():
         return redirect(url_for('pricing'))
 
     vms = VirtualMachine.query.filter_by(deleted=False).all()
-    servers_vms = {}
-    total_vms_revenue = 0.0
     
-    # Сначала группируем ВМ по серверам
+    # Сначала группируем ВМ по серверам (хостам)
     vms_by_server = {}
     for vm in vms:
         srv = vm.server
@@ -648,18 +660,38 @@ def pricing():
         if srv.id not in vms_by_server:
             vms_by_server[srv.id] = []
         vms_by_server[srv.id].append(vm)
+
+    # Инициализируем кластеры
+    clusters = Server.query.filter_by(deleted=False, type='proxmox').all()
+    clusters_data = {}
+    for c in clusters:
+        clusters_data[c.id] = {
+            'cluster': c,
+            'hosts': []
+        }
+        
+    standalone_hosts = []
+    total_vms_revenue = 0.0
+    
+    def get_effective_pricing(srv, policy):
+        # 1. Свой тариф хоста
+        if srv.cpu_price is not None:
+            return srv.cpu_price, srv.ram_price_gb, srv.ssd_price_gb, srv.hdd_price_gb, 'host'
+        # 2. Тариф родительского кластера
+        if srv.parent_id:
+            parent = srv.parent
+            if parent and parent.cpu_price is not None:
+                return parent.cpu_price, parent.ram_price_gb, parent.ssd_price_gb, parent.hdd_price_gb, 'cluster'
+        # 3. Глобальный базовый тариф
+        return policy.cpu_price, policy.ram_price_gb, policy.ssd_price_gb, policy.hdd_price_gb, 'global'
         
     for srv_id, srv_vms in vms_by_server.items():
         srv = Server.query.get(srv_id)
-        if not srv:
+        if not srv or srv.deleted:
             continue
             
-        # Определяем эффективные тарифы с учетом настроек кластера/сервера
-        pricing_source = srv.parent if srv.parent else srv
-        cpu_pr = pricing_source.cpu_price if pricing_source.cpu_price is not None else policy.cpu_price
-        ram_pr = pricing_source.ram_price_gb if pricing_source.ram_price_gb is not None else policy.ram_price_gb
-        ssd_pr = pricing_source.ssd_price_gb if pricing_source.ssd_price_gb is not None else policy.ssd_price_gb
-        hdd_pr = pricing_source.hdd_price_gb if pricing_source.hdd_price_gb is not None else policy.hdd_price_gb
+        # Определяем эффективные тарифы хоста (свой -> кластера -> глобальный)
+        cpu_pr, ram_pr, ssd_pr, hdd_pr, pricing_source_type = get_effective_pricing(srv, policy)
 
         commented_groups = {}
         grouped_items = []
@@ -700,7 +732,6 @@ def pricing():
                     g['manual_price'] += vm.manual_price
                     g['has_manual'] = True
             else:
-                # ВМ без комментария - отдельная строка
                 grouped_items.append({
                     'client_name': vm.name,
                     'is_group': False,
@@ -715,54 +746,43 @@ def pricing():
                     'representative_vm_id': vm.id
                 })
                 
-        # Добавляем сгруппированные ВМ с комментариями
         for g in commented_groups.values():
             grouped_items.append(g)
             
         # Общие физические объемы ресурсов хоста
         total_host_cpu = srv.cpu if srv.cpu > 0 else sum(vm.cpu for vm in srv_vms)
-        if total_host_cpu == 0:
-            total_host_cpu = 1
-            
-        total_host_ram = srv.ram if srv.ram > 0 else sum(vm.ram for vm in srv_vms)
-        if total_host_ram == 0:
-            total_host_ram = 1
-            
-        total_host_ssd = srv.ssd if srv.ssd > 0 else sum(vm.ssd for vm in srv_vms)
-        if total_host_ssd == 0:
-            total_host_ssd = 1
-            
-        total_host_hdd = srv.hdd if srv.hdd > 0 else sum(vm.hdd for vm in srv_vms)
-        if total_host_hdd == 0:
-            total_host_hdd = 1
-            
-        host_expense = srv.expense if srv.expense else 0.0
+        if total_host_cpu == 0: total_host_cpu = 1
         
+        total_host_ram = srv.ram if srv.ram > 0 else sum(vm.ram for vm in srv_vms)
+        if total_host_ram == 0: total_host_ram = 1
+        
+        total_host_ssd = srv.ssd if srv.ssd > 0 else sum(vm.ssd for vm in srv_vms)
+        if total_host_ssd == 0: total_host_ssd = 1
+        
+        total_host_hdd = srv.hdd if srv.hdd > 0 else sum(vm.hdd for vm in srv_vms)
+        if total_host_hdd == 0: total_host_hdd = 1
+        
+        host_expense = srv.expense if srv.expense else 0.0
         server_income = 0.0
         server_expense = 0.0
         processed_items = []
         
         for item in grouped_items:
-            # Доли по разным ресурсам
             share_cpu = (item['cpu'] / total_host_cpu) * 100
             share_ram = (item['ram'] / total_host_ram) * 100
             share_ssd = (item['ssd'] / total_host_ssd) * 100
             share_hdd = (item['hdd'] / total_host_hdd) * 100
             
-            # Доход
             income = item['manual_price'] if item['has_manual'] else item['auto_cost']
             total_vms_revenue += income
             server_income += income
             
-            # Расход (Себестоимость распределяется по доле RAM, как в Excel)
             expense = host_expense * (item['ram'] / total_host_ram)
             server_expense += expense
             
-            # Прибыль и рентабельность
             profit = income - expense
             rentability = (profit / expense * 100) if expense > 0 else 0.0
             
-            # Примечание (список ВМ)
             if item['is_group']:
                 other_vms = [v.name for v in item['vms_list']]
                 note = "также " + ", ".join(other_vms)
@@ -792,16 +812,13 @@ def pricing():
             })
             
         server_profit = server_income - server_expense
-        
-        # Суммы долей
         total_share_cpu = sum(item['share_cpu'] for item in processed_items)
         total_share_ram = sum(item['share_ram'] for item in processed_items)
         total_share_ssd = sum(item['share_ssd'] for item in processed_items)
         total_share_hdd = sum(item['share_hdd'] for item in processed_items)
-        
         server_rentability = (server_profit / server_expense * 100) if server_expense > 0 else 0.0
         
-        servers_vms[srv.id] = {
+        host_data = {
             'server': srv,
             'grouped_items': processed_items,
             'total_income': server_income,
@@ -815,8 +832,15 @@ def pricing():
             'cpu_price': cpu_pr,
             'ram_price': ram_pr,
             'ssd_price': ssd_pr,
-            'hdd_price': hdd_pr
+            'hdd_price': hdd_pr,
+            'pricing_source_type': pricing_source_type
         }
+        
+        # Группируем хост под кластер или в одиночные
+        if srv.parent_id and srv.parent_id in clusters_data:
+            clusters_data[srv.parent_id]['hosts'].append(host_data)
+        else:
+            standalone_hosts.append(host_data)
 
     # Исключаем скрытые квоты из финансовых отчетов
     quotas_list = CompanyQuota.query.filter_by(is_hidden=False).all()
@@ -854,7 +878,8 @@ def pricing():
             if q.manual_price is not None:
                 g['manual_price'] += q.manual_price
                 g['has_manual'] = True
-            g['server_names'].add(q.server.name)
+            if q.server:
+                g['server_names'].add(q.server.name)
         else:
             # Отдельная строка без комментария
             grouped_quotas.append({
@@ -867,7 +892,7 @@ def pricing():
                 'manual_price': q.manual_price if q.manual_price is not None else 0.0,
                 'has_manual': q.manual_price is not None,
                 'representative_quota_id': q.id,
-                'server_names': {q.server.name}
+                'server_names': {q.server.name} if q.server else set()
             })
             
     for g in commented_quota_groups.values():
@@ -905,7 +930,8 @@ def pricing():
 
     return render_template('pricing.html', 
                            policy=policy, 
-                           servers_vms=servers_vms, 
+                           clusters_data=clusters_data,
+                           standalone_hosts=standalone_hosts, 
                            quotas=quotas_pricing,
                            backup_servers=backup_servers,
                            total_vms_revenue=round(total_vms_revenue, 2),
@@ -1135,8 +1161,8 @@ def scheduled_sync_all():
             interval_hours = policy.sync_interval_hours if (policy and policy.sync_interval_hours) else 1
             
             servers = Server.query.filter_by(deleted=False).filter(Server.type.in_(['proxmox', 'backup_ssh'])).all()
-            from sync_engine import run_sync
             from datetime import timedelta
+            servers_to_sync = []
             
             for s in servers:
                 should_sync = False
@@ -1146,20 +1172,52 @@ def scheduled_sync_all():
                     elapsed = datetime.now() - s.last_sync
                     if elapsed >= timedelta(hours=interval_hours):
                         should_sync = True
-                        
                 if should_sync:
-                    print(f"[{datetime.now()}] Запуск фоновой автосинхронизации для сервера: {s.name}")
-                    try:
-                        success, message = run_sync(s)
+                    servers_to_sync.append(s.id)
+            
+            # Закрываем сессию, чтобы освободить базу от блокировок на время долгой сетевой работы
+            db.session.remove()
+            
+            from sync_engine import run_sync
+            for server_id in servers_to_sync:
+                s_name = ""
+                # Запрашиваем имя сервера в быстрой транзакции
+                s = Server.query.get(server_id)
+                if s:
+                    s_name = s.name
+                    print(f"[{datetime.now()}] Запуск фоновой автосинхронизации для сервера: {s_name}")
+                db.session.remove()
+                
+                if not s_name:
+                    continue
+                
+                # Сетевой запрос выполняется без удержания открытой сессии БД
+                try:
+                    s_obj = Server.query.get(server_id)
+                    if s_obj:
+                        success, message = run_sync(s_obj)
+                    else:
+                        success, message = False, "Сервер не найден"
+                except Exception as e:
+                    success, message = False, str(e)
+                    print(f"Ошибка фоновой автосинхронизации сервера {s_name}: {e}")
+                
+                # Записываем результаты в отдельной короткой транзакции
+                try:
+                    s_obj = Server.query.get(server_id)
+                    if s_obj:
                         if success:
-                            s.status = 'online'
-                            s.last_sync = datetime.now()
+                            s_obj.status = 'online'
+                            s_obj.last_sync = datetime.now()
                         else:
-                            s.status = 'offline'
-                    except Exception as e:
-                         s.status = 'offline'
-                         print(f"Ошибка фоновой автосинхронизации сервера {s.name}: {e}")
-            db.session.commit()
+                            s_obj.status = 'offline'
+                        db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Ошибка сохранения статуса фоновой синхронизации для {s_name}: {e}")
+                finally:
+                    db.session.remove()
+                    
         except Exception as e:
             print(f"[{datetime.now()}] Ошибка фоновой автосинхронизации: {e}")
 

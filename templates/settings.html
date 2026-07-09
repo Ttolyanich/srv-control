@@ -94,6 +94,23 @@
                 </div>
             </div>
 
+            <!-- SSH Instructions (Add) -->
+            <div id="backup-ssh-instructions-add" style="display: none; margin-top: 16px; padding: 16px; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; margin-bottom: 16px;">
+                <h4 style="font-size: 13px; font-weight: 600; color: #f59e0b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; margin-top: 0;">
+                    💡 Инструкция по настройке бэкап-сервера
+                </h4>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin: 0 0 10px 0;">
+                    Для работы синхронизации квот на бэкап-сервере необходимо настроить SSH-пользователя (например, <code>srv-monitor</code>) с беспарольным доступом к утилите <code>repquota</code>.
+                </p>
+                <ol style="font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin: 0; padding-left: 20px;">
+                    <li>Создайте пользователя на бэкап-сервере: <br><pre style="background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px; font-family: monospace; display: inline-block; margin: 4px 0; color: #fff;">sudo adduser srv-monitor</pre></li>
+                    <li>Разрешите пользователю запускать <code>repquota</code> через <code>sudo</code> без ввода пароля. Для этого выполните команду <code>sudo visudo</code> и добавьте в конец файла строку:
+                        <br><pre style="background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px; font-family: monospace; display: inline-block; margin: 4px 0; color: #fff;">srv-monitor ALL=(ALL) NOPASSWD: /usr/sbin/repquota</pre>
+                    </li>
+                    <li>Убедитесь, что на сервере включена дисковая квота для нужного раздела, а утилиты <code>quota</code> и <code>repquota</code> установлены.</li>
+                </ol>
+            </div>
+
 
 
             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 20px;">
@@ -380,12 +397,14 @@ function toggleSyncFields(type, mode) {
     var extraInput = document.getElementById(prefix + 'extra_param');
     var backupPathGroup = document.getElementById(mode === 'add' ? 'group-backup-path-add' : 'group-backup-path-edit');
     var physResources = document.getElementById(mode === 'add' ? 'physical-resources-add' : 'physical-resources-edit');
+    var instructions = mode === 'add' ? document.getElementById('backup-ssh-instructions-add') : null;
 
     if (type === 'manual') {
         container.style.display = 'none';
         userInput.removeAttribute('required');
         backupPathGroup.style.display = 'none';
         if (physResources) physResources.style.display = 'block';
+        if (instructions) instructions.style.display = 'none';
     } else {
         container.style.display = 'block';
         userInput.setAttribute('required', 'required');
@@ -398,6 +417,7 @@ function toggleSyncFields(type, mode) {
             extraLabel.innerText = 'ID Токена (если используется токен)';
             extraInput.placeholder = 'Например, monitoring';
             backupPathGroup.style.display = 'none';
+            if (instructions) instructions.style.display = 'none';
         } else if (type === 'backup_ssh') {
             userLabel.innerText = 'Пользователь SSH (например, root)';
             userInput.placeholder = 'root или backup';
@@ -405,6 +425,7 @@ function toggleSyncFields(type, mode) {
             extraLabel.innerText = 'Порт SSH (по умолчанию 22)';
             extraInput.placeholder = '22';
             backupPathGroup.style.display = 'block';
+            if (instructions) instructions.style.display = 'block';
         }
     }
 }

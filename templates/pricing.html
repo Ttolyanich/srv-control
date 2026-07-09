@@ -18,86 +18,6 @@
 </div>
 
     <!-- Сворачиваемая панель тарифов сверху -->
-    <div class="card" style="margin-bottom: 24px; padding: 0; overflow: hidden; border-color: rgba(59, 130, 246, 0.2);">
-        <div onclick="toggleTariffs()" style="padding: 14px 24px; background: rgba(59, 130, 246, 0.05); display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-blue);"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                <span style="font-family: var(--font-title); font-size: 15px; font-weight: 600; color: #ffffff;">
-                    {% if current_user and current_user.role in ['admin', 'financier'] %}Редактирование тарифов ресурсов{% else %}Действующие тарифы ресурсов{% endif %}
-                </span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <!-- Компактное превью текущих тарифов при свернутом состоянии -->
-                <div id="tariffs-preview-bar" style="display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary); margin-right: 12px; transition: opacity 0.2s ease; opacity: 1;">
-                    <span>CPU (ядро): <strong style="color: #ffffff;">{{ policy.cpu_price|int }} ₸</strong></span>
-                    <span>RAM (ГБ): <strong style="color: #ffffff;">{{ policy.ram_price_gb|int }} ₸</strong></span>
-                    <span>SSD (ГБ): <strong style="color: #ffffff;">{{ policy.ssd_price_gb|int }} ₸</strong></span>
-                    <span>HDD (ГБ): <strong style="color: #ffffff;">{{ policy.hdd_price_gb|int }} ₸</strong></span>
-                    <span>Бэкап (ГБ): <strong style="color: var(--accent-red);">{{ policy.backup_price_gb|int }} ₸</strong></span>
-                </div>
-                <svg id="tariffs-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform: rotate(0deg); transition: transform 0.2s ease; color: var(--text-secondary);"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </div>
-        </div>
-        
-        <!-- Тело формы/тарифов (скрыто по умолчанию) -->
-        <div id="tariffs-body-content" style="max-height: 0px; overflow: hidden; transition: max-height 0.3s ease-out; background: rgba(255, 255, 255, 0.01);">
-            <div style="padding: 24px; border-top: 1px solid var(--border-color);">
-                {% if current_user and current_user.role in ['admin', 'financier'] %}
-                <form action="{{ url_for('pricing') }}" method="POST" style="margin: 0;">
-                    <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;">
-                        <div class="form-group" style="flex: 1; min-width: 140px; margin: 0;">
-                            <label for="cpu_price" style="font-size: 11px; margin-bottom: 6px; display: block; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">CPU (1 Ядро, ₸/мес)</label>
-                            <input type="number" step="0.1" id="cpu_price" name="cpu_price" class="form-control" style="height: 36px; font-size: 13px;" value="{{ policy.cpu_price }}" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 140px; margin: 0;">
-                            <label for="ram_price_gb" style="font-size: 11px; margin-bottom: 6px; display: block; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">RAM (1 ГБ, ₸/мес)</label>
-                            <input type="number" step="0.1" id="ram_price_gb" name="ram_price_gb" class="form-control" style="height: 36px; font-size: 13px;" value="{{ policy.ram_price_gb }}" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 140px; margin: 0;">
-                            <label for="ssd_price_gb" style="font-size: 11px; margin-bottom: 6px; display: block; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">SSD (1 ГБ, ₸/мес)</label>
-                            <input type="number" step="0.1" id="ssd_price_gb" name="ssd_price_gb" class="form-control" style="height: 36px; font-size: 13px;" value="{{ policy.ssd_price_gb }}" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 140px; margin: 0;">
-                            <label for="hdd_price_gb" style="font-size: 11px; margin-bottom: 6px; display: block; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">HDD (1 ГБ, ₸/мес)</label>
-                            <input type="number" step="0.1" id="hdd_price_gb" name="hdd_price_gb" class="form-control" style="height: 36px; font-size: 13px;" value="{{ policy.hdd_price_gb }}" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 140px; margin: 0;">
-                            <label for="backup_price_gb" style="font-size: 11px; margin-bottom: 6px; display: block; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Бэкап (1 ГБ, ₸/мес)</label>
-                            <input type="number" step="0.1" id="backup_price_gb" name="backup_price_gb" class="form-control" style="height: 36px; font-size: 13px;" value="{{ policy.backup_price_gb }}" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="height: 36px; padding: 0 20px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                            💾 Сохранить тарифы
-                        </button>
-                    </div>
-                </form>
-                {% else %}
-                <div style="display: flex; gap: 32px; justify-content: space-around; flex-wrap: wrap; padding: 10px 0;">
-                    <div style="text-align: center;">
-                        <span style="color: var(--text-secondary); font-size: 12px; display: block; margin-bottom: 4px;">1 Ядро CPU</span>
-                        <span style="font-size: 16px; font-weight: 700; color: #ffffff;">{{ policy.cpu_price|int }} ₸ <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ мес</span></span>
-                    </div>
-                    <div style="text-align: center;">
-                        <span style="color: var(--text-secondary); font-size: 12px; display: block; margin-bottom: 4px;">1 ГБ RAM</span>
-                        <span style="font-size: 16px; font-weight: 700; color: #ffffff;">{{ policy.ram_price_gb|int }} ₸ <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ мес</span></span>
-                    </div>
-                    <div style="text-align: center;">
-                        <span style="color: var(--text-secondary); font-size: 12px; display: block; margin-bottom: 4px;">1 ГБ SSD</span>
-                        <span style="font-size: 16px; font-weight: 700; color: #ffffff;">{{ policy.ssd_price_gb|int }} ₸ <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ мес</span></span>
-                    </div>
-                    <div style="text-align: center;">
-                        <span style="color: var(--text-secondary); font-size: 12px; display: block; margin-bottom: 4px;">1 ГБ HDD</span>
-                        <span style="font-size: 16px; font-weight: 700; color: #ffffff;">{{ policy.hdd_price_gb|int }} ₸ <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ мес</span></span>
-                    </div>
-                    <div style="text-align: center;">
-                        <span style="color: var(--text-secondary); font-size: 12px; display: block; margin-bottom: 4px;">1 ГБ Бэкапа</span>
-                        <span style="font-size: 16px; font-weight: 700; color: var(--accent-red);">{{ policy.backup_price_gb|int }} ₸ <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">/ мес</span></span>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
     <!-- Вкладки на всю ширину страницы -->
     <div class="tabs-container">
             <div class="tabs-header">
@@ -115,140 +35,318 @@
                     </div>
                 </div>
 
-                {% if servers_vms %}
-                    {% for s_id, s_data in servers_vms.items() %}
-                    <div class="cluster-group" style="margin-bottom: 40px;">
-                        <!-- Название сервера -->
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 12px;">
-                            <h3 style="font-family: var(--font-title); font-size: 16px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0;">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red); flex-shrink: 0;"><rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-                                Физический хост: {{ s_data.server.name }} ({{ s_data.server.ip_address or 'Локальный' }})
-                            </h3>
-                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                                {% if s_data.server.cpu_price is not none or s_data.server.ram_price_gb is not none or s_data.server.ssd_price_gb is not none or s_data.server.hdd_price_gb is not none %}
-                                    <span class="badge badge-unknown" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Свой тариф</span>
-                                    <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
-                                {% else %}
-                                    <span style="font-style: italic; opacity: 0.8;">Глобальный тариф</span>
-                                {% endif %}
-                                
-                                {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s_data.server.id }}, '{{ s_data.server.name }}', '{{ s_data.server.type }}', {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else 'null' }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else 'null' }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else 'null' }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 12px; height: 32px; border-radius: 6px;">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                                    Настроить
-                                </button>
-                                {% endif %}
-                            </div>
-                        </div>
-
-                        <!-- Расходная часть хоста (Себестоимость) над списком ВМ -->
-                        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-                            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-                                <span style="font-size: 13px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px;">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                                    Себестоимость хоста в месяц:
-                                </span>
-                                {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                <form action="{{ url_for('update_host_expense') }}" method="POST" style="margin: 0; display: flex; align-items: center; gap: 8px;" onsubmit="event.preventDefault(); submitManualPrice(this);">
-                                    <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
-                                    <input type="number" name="expense" class="form-control" style="width: 120px; height: 32px; font-size: 13px; text-align: right; margin: 0;" value="{{ s_data.server.expense|int if s_data.server.expense else 0 }}" required>
-                                    <button type="submit" class="btn btn-secondary btn-sm" style="height: 32px; padding: 0 10px;" title="Сохранить расходы">Сохранить себестоимость</button>
-                                </form>
-                                {% else %}
-                                <strong style="font-size: 14px; color: var(--status-offline);">{{ (s_data.server.expense or 0)|int }} ₸</strong>
-                                {% endif %}
+                {% if clusters_data or standalone_hosts %}
+                    <!-- Выводим хосты, сгруппированные по кластерам -->
+                    {% for c_id, c_data in clusters_data.items() %}
+                        <div class="cluster-container" style="margin-bottom: 40px; padding: 24px; background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border-color); border-radius: 16px;">
+                            <!-- Заголовок кластера с его тарифом -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+                                <h3 style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+                                    Кластер Proxmox: {{ c_data.cluster.name }}
+                                </h3>
+                                <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                    {% if c_data.cluster.cpu_price is not none or c_data.cluster.ram_price_gb is not none or c_data.cluster.ssd_price_gb is not none or c_data.cluster.hdd_price_gb is not none %}
+                                        <span class="badge badge-unknown" style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.3); font-size: 9px; padding: 2px 4px; text-transform: uppercase;">Общий тариф кластера</span>
+                                        <span>CPU: <strong>{{ c_data.cluster.cpu_price|int if c_data.cluster.cpu_price is not none else '—' }} ₸</strong> | RAM: <strong>{{ c_data.cluster.ram_price_gb|int if c_data.cluster.ram_price_gb is not none else '—' }} ₸</strong> | SSD: <strong>{{ c_data.cluster.ssd_price_gb|int if c_data.cluster.ssd_price_gb is not none else '—' }} ₸</strong> | HDD: <strong>{{ c_data.cluster.hdd_price_gb|int if c_data.cluster.hdd_price_gb is not none else '—' }} ₸</strong></span>
+                                    {% else %}
+                                        <span style="font-style: italic; opacity: 0.8;">Тариф кластера: базовый по умолчанию</span>
+                                    {% endif %}
+                                    
+                                    {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                    <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ c_data.cluster.id }}, '{{ c_data.cluster.name }}', '{{ c_data.cluster.type }}', {{ c_data.cluster.cpu_price if c_data.cluster.cpu_price is not none else 'null' }}, {{ c_data.cluster.ram_price_gb if c_data.cluster.ram_price_gb is not none else 'null' }}, {{ c_data.cluster.ssd_price_gb if c_data.cluster.ssd_price_gb is not none else 'null' }}, {{ c_data.cluster.hdd_price_gb if c_data.cluster.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                        Настроить тариф кластера
+                                    </button>
+                                    {% endif %}
+                                </div>
                             </div>
                             
-                            <div style="display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary);">
-                                <div>Физический CPU: <strong style="color: #ffffff;">{{ s_data.server.cpu }} ядер</strong></div>
-                                <div>Физический RAM: <strong style="color: #ffffff;">{{ s_data.server.ram }} ГБ</strong></div>
-                                <div>Физический SSD: <strong style="color: #ffffff;">{{ s_data.server.ssd }} ГБ</strong></div>
-                            </div>
-                        </div>
-
-                        <!-- Таблица с клиентами на всю ширину -->
-                        <div class="table-container" style="margin-bottom: 0; border-radius: 12px;">
-                            <table class="custom-table" style="margin: 0; width: 100%;">
-                                <thead>
-                                    <tr>
-                                        <th>Клиент / машина</th>
-                                        <th style="text-align: right; width: 85px;">Доля CPU</th>
-                                        <th style="text-align: right; width: 85px;">Доля RAM</th>
-                                        <th style="text-align: right; width: 85px;">Доля SSD</th>
-                                        <th style="text-align: right; width: 85px;">Доля HDD</th>
-                                        <th style="text-align: right; width: 190px;">Доход (₸)</th>
-                                        <th style="text-align: right; width: 150px;">Расход на клиента (₸)</th>
-                                        <th style="text-align: right; width: 150px;">Прибыль (₸)</th>
-                                        <th style="text-align: right; width: 110px;">Рентабельность</th>
-                                        <th>Примечание</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for item in s_data.grouped_items %}
-                                    <tr>
-                                        <td style="font-weight: 600; color: #ffffff;">{{ item.client_name }}</td>
-                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_cpu }}%</td>
-                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ram }}%</td>
-                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ssd }}%</td>
-                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_hdd }}%</td>
-                                        <td style="text-align: right;">
-                                            {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                            <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
-                                                <input type="hidden" name="item_type" value="vm_group">
-                                                <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
-                                                {% if item.is_group %}
-                                                    <input type="hidden" name="client_name" value="{{ item.client_name }}">
-                                                    <input type="hidden" name="item_id" value="0">
+                            {% if c_data.hosts %}
+                                {% for s_data in c_data.hosts %}
+                                    <div class="cluster-group" style="margin-bottom: 40px; border-left: 2px solid var(--accent-red); padding-left: 20px;">
+                                        <!-- Название сервера/хоста -->
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 12px;">
+                                            <h4 style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0;">
+                                                Физический хост: {{ s_data.server.name }} ({{ s_data.server.ip_address or 'Локальный' }})
+                                            </h4>
+                                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                                {% if s_data.pricing_source_type == 'host' %}
+                                                    <span class="badge badge-online" style="font-size: 9px; padding: 2px 4px;">Свой тариф хоста</span>
+                                                    <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
+                                                {% elif s_data.pricing_source_type == 'cluster' %}
+                                                    <span class="badge badge-unknown" style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.3); font-size: 9px; padding: 2px 4px;">Тариф кластера</span>
+                                                    <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
                                                 {% else %}
-                                                    <input type="hidden" name="client_name" value="">
-                                                    <input type="hidden" name="item_id" value="{{ item.representative_vm_id }}">
+                                                    <span class="badge badge-unknown" style="font-size: 9px; padding: 2px 4px;">Базовый тариф</span>
+                                                    <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
                                                 {% endif %}
-                                                <input type="number" name="manual_price" class="form-control" style="width: 100px; padding: 4px 8px; height: 28px; font-size: 13px; text-align: right;" value="{{ item.manual_price|int if item.has_manual else '' }}" placeholder="Авто ({{ item.auto_cost|int }})">
-                                                <button type="submit" class="btn btn-secondary btn-sm" style="padding: 4px 6px; height: 28px; line-height: 1;" title="Сохранить цену">💾</button>
+                                                
+                                                {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                                <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s_data.server.id }}, '{{ s_data.server.name }}', '{{ s_data.server.type }}', {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else 'null' }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else 'null' }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else 'null' }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                                    Настроить
+                                                </button>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+
+                                        <!-- Расходная часть хоста (Себестоимость) -->
+                                        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+                                            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                                                <span style="font-size: 13px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                                    Себестоимость хоста в месяц:
+                                                </span>
+                                                {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                                <form action="{{ url_for('update_host_expense') }}" method="POST" style="margin: 0; display: flex; align-items: center; gap: 8px;" onsubmit="event.preventDefault(); submitManualPrice(this);">
+                                                    <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
+                                                    <input type="number" name="expense" class="form-control" style="width: 120px; height: 32px; font-size: 13px; text-align: right; margin: 0;" value="{{ s_data.server.expense|int if s_data.server.expense else 0 }}" required>
+                                                    <button type="submit" class="btn btn-secondary btn-sm" style="height: 32px; padding: 0 10px;" title="Сохранить расходы">Сохранить себестоимость</button>
+                                                </form>
+                                                {% else %}
+                                                <strong style="font-size: 14px; color: var(--status-offline);">{{ (s_data.server.expense or 0)|int }} ₸</strong>
+                                                {% endif %}
+                                            </div>
+                                            
+                                            <div style="display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary);">
+                                                <div>Физический CPU: <strong style="color: #ffffff;">{{ s_data.server.cpu }} ядер</strong></div>
+                                                <div>Физический RAM: <strong style="color: #ffffff;">{{ s_data.server.ram }} ГБ</strong></div>
+                                                <div>Физический SSD: <strong style="color: #ffffff;">{{ s_data.server.ssd }} ГБ</strong></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Таблица с клиентами -->
+                                        <div class="table-container" style="margin-bottom: 0; border-radius: 12px;">
+                                            <table class="custom-table" style="margin: 0; width: 100%;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Клиент / машина</th>
+                                                        <th style="text-align: right; width: 85px;">Доля CPU</th>
+                                                        <th style="text-align: right; width: 85px;">Доля RAM</th>
+                                                        <th style="text-align: right; width: 85px;">Доля SSD</th>
+                                                        <th style="text-align: right; width: 85px;">Доля HDD</th>
+                                                        <th style="text-align: right; width: 190px;">Доход (₸)</th>
+                                                        <th style="text-align: right; width: 150px;">Расход на клиента (₸)</th>
+                                                        <th style="text-align: right; width: 150px;">Прибыль (₸)</th>
+                                                        <th style="text-align: right; width: 110px;">Рентабельность</th>
+                                                        <th>Примечание</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for item in s_data.grouped_items %}
+                                                    <tr>
+                                                        <td style="font-weight: 600; color: #ffffff;">{{ item.client_name }}</td>
+                                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_cpu }}%</td>
+                                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ram }}%</td>
+                                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ssd }}%</td>
+                                                        <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_hdd }}%</td>
+                                                        <td style="text-align: right;">
+                                                            {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                                            <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
+                                                                <input type="hidden" name="item_type" value="vm_group">
+                                                                <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
+                                                                {% if item.is_group %}
+                                                                    <input type="hidden" name="client_name" value="{{ item.client_name }}">
+                                                                    <input type="hidden" name="item_id" value="0">
+                                                                {% else %}
+                                                                    <input type="hidden" name="client_name" value="">
+                                                                    <input type="hidden" name="item_id" value="{{ item.representative_vm_id }}">
+                                                                {% endif %}
+                                                                <input type="number" name="manual_price" class="form-control" style="width: 100px; padding: 4px 8px; height: 28px; font-size: 13px; text-align: right;" value="{{ item.manual_price|int if item.has_manual else '' }}" placeholder="Авто ({{ item.auto_cost|int }})">
+                                                                <button type="submit" class="btn btn-secondary btn-sm" style="padding: 4px 6px; height: 28px; line-height: 1;" title="Сохранить цену">💾</button>
+                                                            </form>
+                                                            {% else %}
+                                                            <span style="font-weight: 600; {% if item.has_manual %}color: var(--status-warning);{% else %}color: var(--accent-blue);{% endif %}">
+                                                                {{ item.income|int }} ₸
+                                                            </span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td style="text-align: right; color: var(--text-secondary);">{{ item.expense|int }} ₸</td>
+                                                        <td style="text-align: right; font-weight: 700; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                            {{ '+' if item.profit > 0 else '' }}{{ item.profit|int }} ₸
+                                                        </td>
+                                                        <td style="text-align: right; font-weight: 600; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                            {% if item.expense > 0 %}{{ item.rentability|int }}%{% else %}—{% endif %}
+                                                        </td>
+                                                        <td style="font-size: 11px; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ item.note }}">
+                                                            {{ item.note }}
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                    
+                                                    <!-- Итоговая строка хоста -->
+                                                    <tr style="background-color: rgba(255, 255, 255, 0.035); font-weight: 700; border-top: 2px solid var(--border-color);">
+                                                        <td>ИТОГО клиенты:</td>
+                                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_cpu|int }}%</td>
+                                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ram|int }}%</td>
+                                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ssd|int }}%</td>
+                                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_hdd|int }}%</td>
+                                                        <td style="text-align: right; color: var(--accent-blue);">{{ s_data.total_income|int }} ₸</td>
+                                                        <td style="text-align: right; color: var(--status-offline);">{{ s_data.total_expense|int }} ₸</td>
+                                                        <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                            {{ s_data.total_profit|int }} ₸
+                                                        </td>
+                                                        <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                            {% if s_data.total_expense > 0 %}{{ s_data.total_rentability|int }}%{% else %}—{% endif %}
+                                                        </td>
+                                                        <td style="color: #ffffff; font-weight: 700;">ИТОГО ПРИБЫЛЬ: <span style="{% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">{{ s_data.total_profit|int }} ₸</span></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <p style="text-align: center; color: var(--text-secondary); font-style: italic;">В этом кластере нет активных физических хостов с запущенными ВМ.</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+
+                    <!-- Выводим одиночные вычислительные серверы -->
+                    {% if standalone_hosts %}
+                        <div class="cluster-container" style="margin-bottom: 40px; padding: 24px; background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border-color); border-radius: 16px;">
+                            <div style="border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 24px;">
+                                <h3 style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Одиночные вычислительные серверы
+                                </h3>
+                            </div>
+                            
+                            {% for s_data in standalone_hosts %}
+                                <div class="cluster-group" style="margin-bottom: 40px; border-left: 2px solid var(--accent-blue); padding-left: 20px;">
+                                    <!-- Название одиночного хоста -->
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 12px;">
+                                        <h4 style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0;">
+                                            Сервер: {{ s_data.server.name }} ({{ s_data.server.ip_address or 'Локальный' }})
+                                        </h4>
+                                        <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                            {% if s_data.server.cpu_price is not none or s_data.server.ram_price_gb is not none or s_data.server.ssd_price_gb is not none or s_data.server.hdd_price_gb is not none %}
+                                                <span class="badge badge-online" style="font-size: 9px; padding: 2px 4px;">Индивидуальный тариф</span>
+                                                <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
+                                            {% else %}
+                                                <span class="badge badge-unknown" style="font-size: 9px; padding: 2px 4px;">Глобальный базовый тариф</span>
+                                                <span>CPU: <strong>{{ s_data.cpu_price|int }} ₸</strong> | RAM: <strong>{{ s_data.ram_price|int }} ₸</strong> | SSD: <strong>{{ s_data.ssd_price|int }} ₸</strong> | HDD: <strong>{{ s_data.hdd_price|int }} ₸</strong></span>
+                                            {% endif %}
+                                            
+                                            {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                            <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s_data.server.id }}, '{{ s_data.server.name }}', '{{ s_data.server.type }}', {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else 'null' }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else 'null' }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else 'null' }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                                Настроить
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Себестоимость -->
+                                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px 20px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                                            <span style="font-size: 13px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                                Себестоимость хоста в месяц:
+                                            </span>
+                                            {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                            <form action="{{ url_for('update_host_expense') }}" method="POST" style="margin: 0; display: flex; align-items: center; gap: 8px;" onsubmit="event.preventDefault(); submitManualPrice(this);">
+                                                <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
+                                                <input type="number" name="expense" class="form-control" style="width: 120px; height: 32px; font-size: 13px; text-align: right; margin: 0;" value="{{ s_data.server.expense|int if s_data.server.expense else 0 }}" required>
+                                                <button type="submit" class="btn btn-secondary btn-sm" style="height: 32px; padding: 0 10px;" title="Сохранить расходы">Сохранить себестоимость</button>
                                             </form>
                                             {% else %}
-                                            <span style="font-weight: 600; {% if item.has_manual %}color: var(--status-warning);{% else %}color: var(--accent-blue);{% endif %}">
-                                                {{ item.income|int }} ₸
-                                            </span>
+                                            <strong style="font-size: 14px; color: var(--status-offline);">{{ (s_data.server.expense or 0)|int }} ₸</strong>
                                             {% endif %}
-                                        </td>
-                                        <td style="text-align: right; color: var(--text-secondary);">{{ item.expense|int }} ₸</td>
-                                        <td style="text-align: right; font-weight: 700; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
-                                            {{ '+' if item.profit > 0 else '' }}{{ item.profit|int }} ₸
-                                        </td>
-                                        <td style="text-align: right; font-weight: 600; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
-                                            {% if item.expense > 0 %}{{ item.rentability|int }}%{% else %}—{% endif %}
-                                        </td>
-                                        <td style="font-size: 11px; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ item.note }}">
-                                            {{ item.note }}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                    
-                                    <!-- Итоговая строка хоста -->
-                                    <tr style="background-color: rgba(255, 255, 255, 0.035); font-weight: 700; border-top: 2px solid var(--border-color);">
-                                        <td>ИТОГО клиенты:</td>
-                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_cpu|int }}%</td>
-                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ram|int }}%</td>
-                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ssd|int }}%</td>
-                                        <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_hdd|int }}%</td>
-                                        <td style="text-align: right; color: var(--accent-blue);">{{ s_data.total_income|int }} ₸</td>
-                                        <td style="text-align: right; color: var(--status-offline);">{{ s_data.total_expense|int }} ₸</td>
-                                        <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
-                                            {{ s_data.total_profit|int }} ₸
-                                        </td>
-                                        <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
-                                            {% if s_data.total_expense > 0 %}{{ s_data.total_rentability|int }}%{% else %}—{% endif %}
-                                        </td>
-                                        <td style="color: #ffffff; font-weight: 700;">ИТОГО ПРИБЫЛЬ: <span style="{% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">{{ s_data.total_profit|int }} ₸</span></td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                        </div>
+                                        
+                                        <div style="display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary);">
+                                            <div>Физический CPU: <strong style="color: #ffffff;">{{ s_data.server.cpu }} ядер</strong></div>
+                                            <div>Физический RAM: <strong style="color: #ffffff;">{{ s_data.server.ram }} ГБ</strong></div>
+                                            <div>Физический SSD: <strong style="color: #ffffff;">{{ s_data.server.ssd }} ГБ</strong></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Таблица -->
+                                    <div class="table-container" style="margin-bottom: 0; border-radius: 12px;">
+                                        <table class="custom-table" style="margin: 0; width: 100%;">
+                                            <thead>
+                                                <tr>
+                                                    <th>Клиент / машина</th>
+                                                    <th style="text-align: right; width: 85px;">Доля CPU</th>
+                                                    <th style="text-align: right; width: 85px;">Доля RAM</th>
+                                                    <th style="text-align: right; width: 85px;">Доля SSD</th>
+                                                    <th style="text-align: right; width: 85px;">Доля HDD</th>
+                                                    <th style="text-align: right; width: 190px;">Доход (₸)</th>
+                                                    <th style="text-align: right; width: 150px;">Расход на клиента (₸)</th>
+                                                    <th style="text-align: right; width: 150px;">Прибыль (₸)</th>
+                                                    <th style="text-align: right; width: 110px;">Рентабельность</th>
+                                                    <th>Примечание</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for item in s_data.grouped_items %}
+                                                <tr>
+                                                    <td style="font-weight: 600; color: #ffffff;">{{ item.client_name }}</td>
+                                                    <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_cpu }}%</td>
+                                                    <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ram }}%</td>
+                                                    <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_ssd }}%</td>
+                                                    <td style="text-align: right; font-weight: 500; color: var(--text-primary);">{{ item.share_hdd }}%</td>
+                                                    <td style="text-align: right;">
+                                                        {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                                        <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
+                                                            <input type="hidden" name="item_type" value="vm_group">
+                                                            <input type="hidden" name="server_id" value="{{ s_data.server.id }}">
+                                                            {% if item.is_group %}
+                                                                <input type="hidden" name="client_name" value="{{ item.client_name }}">
+                                                                <input type="hidden" name="item_id" value="0">
+                                                            {% else %}
+                                                                <input type="hidden" name="client_name" value="">
+                                                                <input type="hidden" name="item_id" value="{{ item.representative_vm_id }}">
+                                                            {% endif %}
+                                                            <input type="number" name="manual_price" class="form-control" style="width: 100px; padding: 4px 8px; height: 28px; font-size: 13px; text-align: right;" value="{{ item.manual_price|int if item.has_manual else '' }}" placeholder="Авто ({{ item.auto_cost|int }})">
+                                                            <button type="submit" class="btn btn-secondary btn-sm" style="padding: 4px 6px; height: 28px; line-height: 1;" title="Сохранить цену">💾</button>
+                                                        </form>
+                                                        {% else %}
+                                                        <span style="font-weight: 600; {% if item.has_manual %}color: var(--status-warning);{% else %}color: var(--accent-blue);{% endif %}">
+                                                            {{ item.income|int }} ₸
+                                                        </span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td style="text-align: right; color: var(--text-secondary);">{{ item.expense|int }} ₸</td>
+                                                    <td style="text-align: right; font-weight: 700; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                        {{ '+' if item.profit > 0 else '' }}{{ item.profit|int }} ₸
+                                                    </td>
+                                                    <td style="text-align: right; font-weight: 600; {% if item.profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                        {% if item.expense > 0 %}{{ item.rentability|int }}%{% else %}—{% endif %}
+                                                    </td>
+                                                    <td style="font-size: 11px; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ item.note }}">
+                                                        {{ item.note }}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                                
+                                                <!-- Итоговая строка хоста -->
+                                                <tr style="background-color: rgba(255, 255, 255, 0.035); font-weight: 700; border-top: 2px solid var(--border-color);">
+                                                    <td>ИТОГО клиенты:</td>
+                                                    <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_cpu|int }}%</td>
+                                                    <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ram|int }}%</td>
+                                                    <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_ssd|int }}%</td>
+                                                    <td style="text-align: right; color: #ffffff;">{{ s_data.total_share_hdd|int }}%</td>
+                                                    <td style="text-align: right; color: var(--accent-blue);">{{ s_data.total_income|int }} ₸</td>
+                                                    <td style="text-align: right; color: var(--status-offline);">{{ s_data.total_expense|int }} ₸</td>
+                                                    <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                        {{ s_data.total_profit|int }} ₸
+                                                    </td>
+                                                    <td style="text-align: right; {% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">
+                                                        {% if s_data.total_expense > 0 %}{{ s_data.total_rentability|int }}%{% else %}—{% endif %}
+                                                    </td>
+                                                    <td style="color: #ffffff; font-weight: 700;">ИТОГО ПРИБЫЛЬ: <span style="{% if s_data.total_profit >= 0 %}color: var(--status-online);{% else %}color: var(--status-offline);{% endif %}">{{ s_data.total_profit|int }} ₸</span></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endfor %}
                         </div>
-                    </div>
-                    {% endfor %}
+                    {% endif %}
                 {% else %}
-                    <p style="text-align: center; color: var(--text-secondary); padding: 40px;">Виртуальные машины не найдены.</p>
+                    <p style="text-align: center; color: var(--text-secondary); padding: 40px;">Вычислительные хосты и ВМ не найдены.</p>
                 {% endif %}
             </div>
 
@@ -550,8 +648,144 @@ function submitManualPrice(form) {
         submitBtn.innerHTML = originalText;
         if (res.status === 200) {
             showToast(res.body.message, 'success');
-            localStorage.setItem('pricing_scroll_pos', window.scrollY);
-            window.location.reload();
+            
+            // Получаем тип действия и введенные значения
+            const priceInput = form.querySelector('input[name="manual_price"]');
+            const expenseInput = form.querySelector('input[name="expense"]');
+            
+            if (priceInput) {
+                // Изменение стоимости (ВМ или бэкапа)
+                const row = form.closest('tr');
+                const valStr = priceInput.value.trim();
+                let hasManual = valStr !== '';
+                let price = 0;
+                
+                if (hasManual) {
+                    price = parseFloat(valStr);
+                } else {
+                    // Парсим авто-цену из плейсхолдера
+                    const match = priceInput.placeholder.match(/\d+/);
+                    price = match ? parseFloat(match[0]) : 0;
+                }
+                
+                const typeInput = form.querySelector('input[name="item_type"]');
+                const isBackup = typeInput && typeInput.value.startsWith('quota');
+                
+                if (isBackup) {
+                    // Обновление квоты бэкапа
+                    // Текущий ценник - это следующая ячейка (td)
+                    const costTd = form.closest('td').nextElementSibling;
+                    if (costTd) {
+                        costTd.innerHTML = `${Math.round(price)} ₸` + (hasManual ? ' <span style="font-size: 10px; vertical-align: super;" title="Установлен вручную">*</span>' : '');
+                        costTd.style.color = hasManual ? 'var(--status-warning)' : 'var(--accent-red)';
+                    }
+                    
+                    // Пересчитываем общий итог по бэкапам
+                    let totalBackups = 0;
+                    document.querySelectorAll('#pricing-backups tbody tr:not(:last-child)').forEach(r => {
+                        const td = r.cells[5];
+                        if (td) {
+                            const val = parseFloat(td.textContent.replace(/[^\d]/g, '')) || 0;
+                            totalBackups += val;
+                        }
+                    });
+                    
+                    // Обновляем итоговую строку в таблице бэкапов
+                    const totalRow = document.querySelector('#pricing-backups tbody tr:last-child');
+                    if (totalRow) {
+                        const totalTd = totalRow.cells[5]; // Обновляем именно ячейку стоимости
+                        if (totalTd) {
+                            totalTd.textContent = `${Math.round(totalBackups)} ₸`;
+                        }
+                    }
+                    
+                    // Обновляем карточку выручки бэкапов сверху
+                    const backupRevenueCard = document.querySelector('.metric-card[style*="rgba(157, 7, 30"] .metric-value');
+                    if (backupRevenueCard) {
+                        backupRevenueCard.textContent = `${Math.round(totalBackups)} ₸`;
+                    }
+                } else {
+                    // Обновление ВМ
+                    // Расход на клиента - это cells[6]
+                    const expenseTd = row.cells[6];
+                    const expense = expenseTd ? parseFloat(expenseTd.textContent.replace(/[^\d]/g, '')) || 0 : 0;
+                    
+                    // Прибыль - это cells[7]
+                    const profitTd = row.cells[7];
+                    const profit = price - expense;
+                    if (profitTd) {
+                        profitTd.textContent = `${profit >= 0 ? '+' : ''}${Math.round(profit)} ₸`;
+                        profitTd.style.color = profit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+                    }
+                    
+                    // Рентабельность - это cells[8]
+                    const rentabilityTd = row.cells[8];
+                    if (rentabilityTd) {
+                        if (expense > 0) {
+                            const rent = Math.round((profit / expense) * 100);
+                            rentabilityTd.textContent = `${rent}%`;
+                        } else {
+                            rentabilityTd.textContent = '—';
+                        }
+                        rentabilityTd.style.color = profit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+                    }
+                    
+                    // Пересчитываем ИТОГО для этой таблицы
+                    const tbody = row.closest('tbody');
+                    recalculateTableTotals(tbody);
+                    
+                    // Пересчитываем общую выручку по всем ВМ
+                    recalculateAllVmsRevenue();
+                }
+            } else if (expenseInput) {
+                // Изменение себестоимости (expense) хоста
+                const hostExpense = parseFloat(expenseInput.value) || 0;
+                const container = form.closest('.cluster-group');
+                const tbody = container.querySelector('tbody');
+                
+                // Пересчитываем себестоимость для каждой строки пропорционально RAM
+                tbody.querySelectorAll('tr:not(:last-child)').forEach(r => {
+                    const ramShare = parseFloat(r.cells[2].textContent.replace(/[^\d\.]/g, '')) || 0;
+                    const itemExpense = hostExpense * (ramShare / 100);
+                    
+                    // Записываем расход в cells[6] (Расход на клиента)
+                    r.cells[6].textContent = `${Math.round(itemExpense)} ₸`;
+                    
+                    // Пересчитываем прибыль в cells[7]
+                    let price = 0;
+                    const priceForm = r.cells[5].querySelector('form');
+                    if (priceForm) {
+                        const priceInput = priceForm.querySelector('input[name="manual_price"]');
+                        if (priceInput && priceInput.value.trim() !== '') {
+                            price = parseFloat(priceInput.value) || 0;
+                        } else if (priceInput) {
+                            const match = priceInput.placeholder.match(/\d+/);
+                            price = match ? parseFloat(match[0]) : 0;
+                        }
+                    } else {
+                        price = parseFloat(r.cells[5].textContent.replace(/[^\d]/g, '')) || 0;
+                    }
+                    
+                    const itemProfit = price - itemExpense;
+                    r.cells[7].textContent = `${itemProfit >= 0 ? '+' : ''}${Math.round(itemProfit)} ₸`;
+                    r.cells[7].style.color = itemProfit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+                    
+                    // Пересчитываем рентабельность в cells[8]
+                    if (itemExpense > 0) {
+                        const rent = Math.round((itemProfit / itemExpense) * 100);
+                        r.cells[8].textContent = `${rent}%`;
+                    } else {
+                        r.cells[8].textContent = '—';
+                    }
+                    r.cells[8].style.color = itemProfit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+                });
+                
+                // Пересчитываем ИТОГО для этой таблицы
+                recalculateTableTotals(tbody);
+                
+                // Пересчитываем общую выручку
+                recalculateAllVmsRevenue();
+            }
         } else {
             showToast(res.body.message || 'Произошла ошибка при сохранении', 'error');
         }
@@ -561,6 +795,77 @@ function submitManualPrice(form) {
         submitBtn.innerHTML = originalText;
         showToast('Сетевая ошибка при отправке запроса: ' + err, 'error');
     });
+}
+
+function recalculateTableTotals(tbody) {
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let totalProfit = 0;
+    
+    tbody.querySelectorAll('tr:not(:last-child)').forEach(r => {
+        // Доход из cells[5]
+        let price = 0;
+        const priceForm = r.cells[5].querySelector('form');
+        if (priceForm) {
+            const priceInput = priceForm.querySelector('input[name="manual_price"]');
+            if (priceInput && priceInput.value.trim() !== '') {
+                price = parseFloat(priceInput.value) || 0;
+            } else if (priceInput) {
+                const match = priceInput.placeholder.match(/\d+/);
+                price = match ? parseFloat(match[0]) : 0;
+            }
+        } else {
+            price = parseFloat(r.cells[5].textContent.replace(/[^\d]/g, '')) || 0;
+        }
+        totalIncome += price;
+        
+        // Расход из cells[6]
+        const exp = parseFloat(r.cells[6].textContent.replace(/[^\d]/g, '')) || 0;
+        totalExpense += exp;
+        
+        // Прибыль из cells[7]
+        const prof = price - exp;
+        totalProfit += prof;
+    });
+    
+    // Обновляем ИТОГО строку (последнюю строку tbody)
+    const totalRow = tbody.querySelector('tr:last-child');
+    if (totalRow) {
+        totalRow.cells[5].textContent = `${Math.round(totalIncome)} ₸`;
+        totalRow.cells[6].textContent = `${Math.round(totalExpense)} ₸`;
+        totalRow.cells[7].textContent = `${Math.round(totalProfit)} ₸`;
+        totalRow.cells[7].style.color = totalProfit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+        
+        if (totalExpense > 0) {
+            const totalRent = Math.round((totalProfit / totalExpense) * 100);
+            totalRow.cells[8].textContent = `${totalRent}%`;
+        } else {
+            totalRow.cells[8].textContent = '—';
+        }
+        totalRow.cells[8].style.color = totalProfit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+        
+        const profitSpan = totalRow.cells[9].querySelector('span');
+        if (profitSpan) {
+            profitSpan.textContent = `${Math.round(totalProfit)} ₸`;
+            profitSpan.style.color = totalProfit >= 0 ? 'var(--status-online)' : 'var(--status-offline)';
+        }
+    }
+}
+
+function recalculateAllVmsRevenue() {
+    let totalRevenue = 0;
+    document.querySelectorAll('.cluster-group table tbody tr:last-child').forEach(r => {
+        const td = r.cells[5];
+        if (td) {
+            const val = parseFloat(td.textContent.replace(/[^\d]/g, '')) || 0;
+            totalRevenue += val;
+        }
+    });
+    
+    const vmsRevenueCard = document.querySelector('.metric-card[style*="rgba(59, 130, 246"] .metric-value');
+    if (vmsRevenueCard) {
+        vmsRevenueCard.textContent = `${Math.round(totalRevenue)} ₸`;
+    }
 }
 
 // Восстановление позиции скролла после перезагрузки

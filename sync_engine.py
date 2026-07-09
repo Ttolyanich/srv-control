@@ -449,6 +449,26 @@ def sync_ssh_quota(server, config):
                 db.session.add(new_quota)
                 created_count += 1
 
+        # 5. Автоматически скрываем пользователей, если для них есть группа G-
+        all_quotas = CompanyQuota.query.filter_by(server_id=server.id).all()
+        group_names = set()
+        for q in all_quotas:
+            if q.system_type == 'group' and q.system_name and q.system_name.startswith('G-'):
+                base_name = q.system_name[2:]
+                if base_name:
+                    group_names.add(base_name)
+        
+        if group_names:
+            for q in all_quotas:
+                if q.system_type == 'user' and q.system_name:
+                    is_subuser = False
+                    for base in group_names:
+                        if q.system_name == base or q.system_name.startswith(base + '-'):
+                            is_subuser = True
+                            break
+                    if is_subuser:
+                        q.is_hidden = True
+
         server.status = 'online'
         db.session.commit()
         
