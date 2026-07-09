@@ -1142,3 +1142,17 @@ input[type=number] {
         font-size: 12px;
     }
 }
+
+/* Pricing page collapsible rules */
+.cluster-container.collapsed > *:not(div:first-child),
+.cluster-group.collapsed > *:not(div:first-child) {
+    display: none !important;
+}
+.cluster-container.collapsed .chevron-icon,
+.cluster-group.collapsed .chevron-icon {
+    transform: rotate(-90deg) !important;
+}
+.cluster-container .chevron-icon,
+.cluster-group .chevron-icon {
+    transition: transform 0.2s ease;
+}

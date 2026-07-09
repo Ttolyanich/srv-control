@@ -15,8 +15,10 @@ function closeModal(modalId) {
 
 // --- Collapse/Expand Cluster Groups ---
 function toggleCluster(header) {
-    const group = header.closest('.cluster-group');
-    group.classList.toggle('collapsed');
+    const group = header.closest('.cluster-group') || header.closest('.cluster-container');
+    if (group) {
+        group.classList.toggle('collapsed');
+    }
 }
 
 // --- VM Modals ---
@@ -320,10 +322,13 @@ function syncAllServers() {
 }
 
 function refreshCurrentPageContent() {
-    // Сохраняем позицию скролла и список свернутых серверов перед обновлением
+    // Сохраняем позицию скролла, список свернутых серверов и свернутых кластеров перед обновлением
     const scrollY = window.scrollY;
     const collapsedIds = Array.from(document.querySelectorAll('.cluster-group.collapsed'))
         .map(el => el.getAttribute('data-server-id'))
+        .filter(Boolean);
+    const collapsedClusterIds = Array.from(document.querySelectorAll('.cluster-container.collapsed'))
+        .map(el => el.getAttribute('data-cluster-id'))
         .filter(Boolean);
 
     fetch(window.location.href)
@@ -351,6 +356,14 @@ function refreshCurrentPageContent() {
                 // Восстанавливаем свернутые состояния серверов
                 collapsedIds.forEach(id => {
                     const el = document.querySelector(`.cluster-group[data-server-id="${id}"]`);
+                    if (el) {
+                        el.classList.add('collapsed');
+                    }
+                });
+                
+                // Восстанавливаем свернутые состояния кластеров
+                collapsedClusterIds.forEach(id => {
+                    const el = document.querySelector(`.cluster-container[data-cluster-id="${id}"]`);
                     if (el) {
                         el.classList.add('collapsed');
                     }

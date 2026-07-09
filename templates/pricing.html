@@ -38,11 +38,11 @@
                 {% if clusters_data or standalone_hosts %}
                     <!-- Выводим хосты, сгруппированные по кластерам -->
                     {% for c_id, c_data in clusters_data.items() %}
-                        <div class="cluster-container" style="margin-bottom: 40px; padding: 24px; background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border-color); border-radius: 16px;">
+                        <div class="cluster-container" data-cluster-id="{{ c_data.cluster.id }}" style="margin-bottom: 40px; padding: 24px; background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border-color); border-radius: 16px;">
                             <!-- Заголовок кластера с его тарифом -->
                             <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
-                                <h3 style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+                                <h3 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none;">
+                                    <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                     Кластер Proxmox: {{ c_data.cluster.name }}
                                 </h3>
                                 <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -64,10 +64,11 @@
                             
                             {% if c_data.hosts %}
                                 {% for s_data in c_data.hosts %}
-                                    <div class="cluster-group" style="margin-bottom: 40px; border-left: 2px solid var(--accent-red); padding-left: 20px;">
+                                    <div class="cluster-group" data-server-id="{{ s_data.server.id }}" style="margin-bottom: 40px; border-left: 2px solid var(--accent-red); padding-left: 20px;">
                                         <!-- Название сервера/хоста -->
                                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 12px;">
-                                            <h4 style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0;">
+                                            <h4 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; user-select: none;">
+                                                <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                                 Физический хост: {{ s_data.server.name }} ({{ s_data.server.ip_address or 'Локальный' }})
                                             </h4>
                                             <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -213,10 +214,11 @@
                             </div>
                             
                             {% for s_data in standalone_hosts %}
-                                <div class="cluster-group" style="margin-bottom: 40px; border-left: 2px solid var(--accent-blue); padding-left: 20px;">
+                                <div class="cluster-group" data-server-id="{{ s_data.server.id }}" style="margin-bottom: 40px; border-left: 2px solid var(--accent-blue); padding-left: 20px;">
                                     <!-- Название одиночного хоста -->
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 12px;">
-                                        <h4 style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0;">
+                                        <h4 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; user-select: none;">
+                                            <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                             Сервер: {{ s_data.server.name }} ({{ s_data.server.ip_address or 'Локальный' }})
                                         </h4>
                                         <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -355,115 +357,105 @@
                 <!-- Financial Card for Backups -->
                 <div class="metric-card" style="margin-bottom: 24px; background: linear-gradient(135deg, rgba(157, 7, 30, 0.08), rgba(157, 7, 30, 0.02)); border-color: rgba(157, 7, 30, 0.2)">
                     <div class="metric-info">
-                        <span class="metric-value" style="font-size: 24px; color: #ffffff;">{{ total_quotas_revenue }} ₸</span>
+                        <span class="metric-value" style="font-size: 24px; color: #ffffff;">{{ total_quotas_revenue|int }} ₸</span>
                         <span class="metric-label" style="color: var(--accent-red); font-weight: 600;">Прогнозируемая выручка от бэкапов / месяц (по договору)</span>
                     </div>
                 </div>
 
-                <!-- Backup Servers Tariffs Section -->
-                {% if backup_servers %}
-                <div class="card" style="margin-bottom: 24px; padding: 20px; border-color: rgba(157, 7, 30, 0.15); background: rgba(22, 22, 30, 0.35);">
-                    <h3 style="font-family: var(--font-title); font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #ffffff; display: flex; align-items: center; gap: 8px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);"><rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect><line x1="12" y1="2" x2="12" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-                        Индивидуальные тарифы бэкап-серверов
-                    </h3>
-                    <div class="table-container" style="margin-bottom: 0; border-radius: 12px; border: 1px solid var(--border-color);">
-                        <table class="custom-table" style="width: 100%; margin: 0;">
-                            <thead>
-                                <tr>
-                                    <th>Сервер</th>
-                                    <th>IP-адрес / Хост</th>
-                                    <th>Тариф за 1 ГБ</th>
-                                    {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                    <th style="text-align: right; width: 150px;">Действия</th>
-                                    {% endif %}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for s in backup_servers %}
-                                <tr>
-                                    <td style="font-weight: 600; color: #ffffff;">{{ s.name }}</td>
-                                    <td style="font-family: monospace;">{{ s.ip_address or 'Локальный' }}</td>
-                                    <td>
-                                        {% if s.backup_price_gb is not none %}
-                                            <strong style="color: var(--accent-red);">{{ s.backup_price_gb|int }} ₸</strong> <span class="badge badge-unknown" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 10px; padding: 2px 6px; text-transform: uppercase;">Свой тариф</span>
-                                        {% else %}
-                                            <span style="color: var(--text-muted); font-style: italic;">Глобальный ({{ policy.backup_price_gb|int }} ₸)</span>
-                                        {% endif %}
-                                    </td>
-                                    {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                    <td style="text-align: right;">
-                                        <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s.id }}, '{{ s.name }}', '{{ s.type }}', null, null, null, null, {{ s.backup_price_gb if s.backup_price_gb is not none else 'null' }})" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 12px; height: 32px; border-radius: 6px;">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                                            Настроить
-                                        </button>
-                                    </td>
-                                    {% endif %}
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                {% endif %}
-
-                <div class="table-container">
-                    <table class="custom-table" style="width: 100%;">
-                        <thead>
-                            <tr>
-                                <th>Клиент / Компания</th>
-                                <th>Квота по договору</th>
-                                <th>Использовано факт</th>
-                                <th style="text-align: right;">Автоценник</th>
-                                <th style="text-align: right; width: 180px;">Ручной ценник</th>
-                                <th style="text-align: right;">Текущий ценник</th>
-                                <th>Примечание</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in quotas %}
-                            <tr>
-                                <td style="font-weight: 600; color: #ffffff;">{{ item.client_name }}</td>
-                                <td>{{ item.allocated_quota }} ГБ</td>
-                                <td style="color: var(--text-secondary);">{{ item.actual_usage }} ГБ</td>
-                                <td style="text-align: right; color: var(--text-secondary);">
-                                    {{ item.auto_cost|int }} ₸
-                                </td>
-                                <td style="text-align: right;">
-                                    {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                    <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
-                                        <input type="hidden" name="item_type" value="quota_group">
-                                        {% if item.is_group %}
-                                            <input type="hidden" name="client_name" value="{{ item.client_name }}">
-                                            <input type="hidden" name="item_id" value="0">
-                                        {% else %}
-                                            <input type="hidden" name="client_name" value="">
-                                            <input type="hidden" name="item_id" value="{{ item.representative_quota_id }}">
-                                        {% endif %}
-                                        <input type="number" name="manual_price" class="form-control" style="width: 100px; padding: 4px 8px; height: 28px; font-size: 13px; text-align: right;" value="{{ item.manual_price|int if item.has_manual else '' }}" placeholder="Авто ({{ item.auto_cost|int }})">
-                                        <button type="submit" class="btn btn-secondary btn-sm" style="padding: 4px 6px; height: 28px; line-height: 1;" title="Сохранить цену">💾</button>
-                                    </form>
+                <!-- Backup Servers Section -->
+                {% if backup_servers_data %}
+                    {% for s_data in backup_servers_data %}
+                        {% set s = s_data.server %}
+                        <div class="card cluster-group" data-server-id="{{ s.id }}" style="margin-bottom: 36px; padding: 24px; background: rgba(22, 22, 30, 0.35); border-color: rgba(157, 7, 30, 0.15);">
+                            <!-- Заголовок сервера бэкапа -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+                                <h3 onclick="toggleCluster(this)" style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px; margin: 0; text-transform: uppercase; cursor: pointer; user-select: none;">
+                                    <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                    Бэкап-сервер: {{ s.name }} ({{ s.ip_address or 'Локальный' }})
+                                </h3>
+                                <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                    {% if s.backup_price_gb is not none %}
+                                        <span class="badge badge-online" style="font-size: 9px; padding: 2px 4px;">Свой тариф</span>
+                                        <span>Тариф: <strong>{{ s.backup_price_gb|int }} ₸/ГБ</strong></span>
                                     {% else %}
-                                    <span style="color: var(--text-muted);">{{ item.manual_price|int if item.has_manual else '—' }}</span>
+                                        <span class="badge badge-unknown" style="font-size: 9px; padding: 2px 4px;">Глобальный тариф</span>
+                                        <span>Тариф: <strong>{{ policy.backup_price_gb|int }} ₸/ГБ</strong></span>
                                     {% endif %}
-                                </td>
-                                <td style="text-align: right; font-weight: 600; {% if item.has_manual %}color: var(--status-warning);{% else %}color: var(--accent-red);{% endif %}">
-                                    {{ item.current_cost|int }} ₸
-                                    {% if item.has_manual %}<span style="font-size: 10px; vertical-align: super;" title="Установлен вручную">*</span>{% endif %}
-                                </td>
-                                <td style="font-size: 11px; color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ item.note }}">
-                                    {{ item.note }}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                            <tr style="background-color: rgba(255, 255, 255, 0.025); font-weight: 700; border-top: 2px solid var(--border-color);">
-                                <td colspan="5">Всего за резервное копирование (текущая стоимость):</td>
-                                <td style="text-align: right; color: #ffffff; font-size: 16px;">{{ total_quotas_revenue|int }} ₸</td>
-                                <td></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                                    
+                                    {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                    <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s.id }}, '{{ s.name }}', '{{ s.type }}', null, null, null, null, {{ s.backup_price_gb if s.backup_price_gb is not none else 'null' }})" style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                        Настроить
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Таблица квот этого сервера -->
+                            <div class="table-container" style="margin-bottom: 0; border-radius: 12px;">
+                                <table class="custom-table" style="width: 100%; margin: 0;">
+                                    <thead>
+                                        <tr>
+                                            <th>Клиент / Компания</th>
+                                            <th>Квота по договору</th>
+                                            <th>Использовано факт</th>
+                                            <th style="text-align: right;">Автоценник</th>
+                                            <th style="text-align: right; width: 180px;">Ручной ценник</th>
+                                            <th style="text-align: right;">Текущий ценник</th>
+                                            <th>Примечание</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in s_data.grouped_items %}
+                                        <tr>
+                                            <td style="font-weight: 600; color: #ffffff;">{{ item.client_name }}</td>
+                                            <td>{{ item.allocated_quota }} ГБ</td>
+                                            <td style="color: var(--text-secondary);">{{ item.actual_usage }} ГБ</td>
+                                            <td style="text-align: right; color: var(--text-secondary);">
+                                                {{ item.auto_cost|int }} ₸
+                                            </td>
+                                            <td style="text-align: right;">
+                                                {% if current_user and current_user.role in ['admin', 'financier'] %}
+                                                <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
+                                                    <input type="hidden" name="item_type" value="quota_group">
+                                                    {% if item.is_group %}
+                                                        <input type="hidden" name="client_name" value="{{ item.client_name }}">
+                                                        <input type="hidden" name="item_id" value="0">
+                                                    {% else %}
+                                                        <input type="hidden" name="client_name" value="">
+                                                        <input type="hidden" name="item_id" value="{{ item.representative_quota_id }}">
+                                                    {% endif %}
+                                                    <input type="number" name="manual_price" class="form-control" style="width: 100px; padding: 4px 8px; height: 28px; font-size: 13px; text-align: right;" value="{{ item.manual_price|int if item.has_manual else '' }}" placeholder="Авто ({{ item.auto_cost|int }})">
+                                                    <button type="submit" class="btn btn-secondary btn-sm" style="padding: 4px 6px; height: 28px; line-height: 1;" title="Сохранить цену">💾</button>
+                                                </form>
+                                                {% else %}
+                                                <span style="color: var(--text-muted);">{{ item.manual_price|int if item.has_manual else '—' }}</span>
+                                                {% endif %}
+                                            </td>
+                                            <td style="text-align: right; font-weight: 600; {% if item.has_manual %}color: var(--status-warning);{% else %}color: var(--accent-red);{% endif %}">
+                                                {{ item.current_cost|int }} ₸
+                                                {% if item.has_manual %}<span style="font-size: 10px; vertical-align: super;" title="Установлен вручную">*</span>{% endif %}
+                                            </td>
+                                            <td style="font-size: 11px; color: var(--text-muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ item.note }}">
+                                                {{ item.note }}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                        
+                                        <!-- Итоговая строка по серверу -->
+                                        <tr style="background-color: rgba(255, 255, 255, 0.025); font-weight: 700; border-top: 2px solid var(--border-color);">
+                                            <td colspan="5">Итого по серверу:</td>
+                                            <td style="text-align: right; color: #ffffff; font-size: 15px;">{{ s_data.total_income|int }} ₸</td>
+                                            <td></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="text-align: center; color: var(--text-secondary); padding: 40px;">Бэкап-серверы не найдены.</p>
+                {% endif %}
             </div>
         </div>
 
@@ -680,29 +672,40 @@ function submitManualPrice(form) {
                         costTd.style.color = hasManual ? 'var(--status-warning)' : 'var(--accent-red)';
                     }
                     
-                    // Пересчитываем общий итог по бэкапам
-                    let totalBackups = 0;
-                    document.querySelectorAll('#pricing-backups tbody tr:not(:last-child)').forEach(r => {
+                    // Пересчитываем итог по текущей таблице сервера
+                    const tbody = row.closest('tbody');
+                    let serverTotal = 0;
+                    tbody.querySelectorAll('tr:not(:last-child)').forEach(r => {
                         const td = r.cells[5];
                         if (td) {
                             const val = parseFloat(td.textContent.replace(/[^\d]/g, '')) || 0;
-                            totalBackups += val;
+                            serverTotal += val;
                         }
                     });
                     
-                    // Обновляем итоговую строку в таблице бэкапов
-                    const totalRow = document.querySelector('#pricing-backups tbody tr:last-child');
+                    // Записываем итог по серверу в последнюю строку этой таблицы
+                    const totalRow = tbody.querySelector('tr:last-child');
                     if (totalRow) {
-                        const totalTd = totalRow.cells[5]; // Обновляем именно ячейку стоимости
+                        const totalTd = totalRow.cells[1]; // cells[5] в data-строках, но в итоговой строке colspan="5", значит cells[1]
                         if (totalTd) {
-                            totalTd.textContent = `${Math.round(totalBackups)} ₸`;
+                            totalTd.textContent = `${Math.round(serverTotal)} ₸`;
                         }
                     }
+                    
+                    // Пересчитываем глобальный итог по всем бэкапам (сумма всех итогов по серверам)
+                    let overallBackups = 0;
+                    document.querySelectorAll('#pricing-backups tbody tr:last-child').forEach(r => {
+                        const td = r.cells[1];
+                        if (td) {
+                            const val = parseFloat(td.textContent.replace(/[^\d]/g, '')) || 0;
+                            overallBackups += val;
+                        }
+                    });
                     
                     // Обновляем карточку выручки бэкапов сверху
                     const backupRevenueCard = document.querySelector('.metric-card[style*="rgba(157, 7, 30"] .metric-value');
                     if (backupRevenueCard) {
-                        backupRevenueCard.textContent = `${Math.round(totalBackups)} ₸`;
+                        backupRevenueCard.textContent = `${Math.round(overallBackups)} ₸`;
                     }
                 } else {
                     // Обновление ВМ

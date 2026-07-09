@@ -842,98 +842,102 @@ def pricing():
         else:
             standalone_hosts.append(host_data)
 
-    # Исключаем скрытые квоты из финансовых отчетов
-    quotas_list = CompanyQuota.query.filter_by(is_hidden=False).all()
-
-    # Группировка квот по комментариям
-    commented_quota_groups = {}
-    grouped_quotas = []
-    
-    for q in quotas_list:
-        client_name = q.comment.strip() if (q.comment and q.comment.strip()) else None
-        
-        srv = q.server
-        backup_pr = srv.backup_price_gb if (srv and srv.backup_price_gb is not None) else policy.backup_price_gb
-        auto_cost = q.allocated_quota * backup_pr
-        
-        if client_name:
-            if client_name not in commented_quota_groups:
-                commented_quota_groups[client_name] = {
-                    'client_name': client_name,
-                    'is_group': True,
-                    'quotas_list': [],
-                    'allocated_quota': 0,
-                    'actual_usage': 0.0,
-                    'auto_cost': 0.0,
-                    'manual_price': 0.0,
-                    'has_manual': False,
-                    'representative_quota_id': q.id,
-                    'server_names': set()
-                }
-            g = commented_quota_groups[client_name]
-            g['quotas_list'].append(q)
-            g['allocated_quota'] += q.allocated_quota
-            g['actual_usage'] += q.actual_usage
-            g['auto_cost'] += auto_cost
-            if q.manual_price is not None:
-                g['manual_price'] += q.manual_price
-                g['has_manual'] = True
-            if q.server:
-                g['server_names'].add(q.server.name)
-        else:
-            # Отдельная строка без комментария
-            grouped_quotas.append({
-                'client_name': q.company_name,
-                'is_group': False,
-                'quotas_list': [q],
-                'allocated_quota': q.allocated_quota,
-                'actual_usage': q.actual_usage,
-                'auto_cost': auto_cost,
-                'manual_price': q.manual_price if q.manual_price is not None else 0.0,
-                'has_manual': q.manual_price is not None,
-                'representative_quota_id': q.id,
-                'server_names': {q.server.name} if q.server else set()
-            })
-            
-    for g in commented_quota_groups.values():
-        grouped_quotas.append(g)
-        
-    quotas_pricing = []
+    # Группируем квоты по серверам
+    backup_servers = Server.query.filter_by(deleted=False, type='backup_ssh').all()
+    backup_servers_data = []
     total_quotas_revenue = 0.0
     
-    for item in grouped_quotas:
-        income = item['manual_price'] if item['has_manual'] else item['auto_cost']
-        total_quotas_revenue += income
-        
-        # Формируем примечание (список бэкап-серверов или системных аккаунтов)
-        server_list = ", ".join(sorted(list(item['server_names'])))
-        if item['is_group']:
-            other_names = [q.company_name for q in item['quotas_list']]
-            note = f"Серверы: {server_list} (аккаунты: {', '.join(other_names)})"
-        else:
-            note = f"Сервер: {server_list}"
+    for s in backup_servers:
+        # Исключаем скрытые квоты
+        server_quotas = CompanyQuota.query.filter_by(server_id=s.id, is_hidden=False).all()
+        if not server_quotas:
+            continue
             
-        quotas_pricing.append({
-            'client_name': item['client_name'],
-            'is_group': item['is_group'],
-            'allocated_quota': item['allocated_quota'],
-            'actual_usage': round(item['actual_usage'], 2),
-            'auto_cost': item['auto_cost'],
-            'manual_price': item['manual_price'],
-            'has_manual': item['has_manual'],
-            'representative_quota_id': item['representative_quota_id'],
-            'current_cost': income,
-            'note': note
+        backup_pr = s.backup_price_gb if s.backup_price_gb is not None else policy.backup_price_gb
+        
+        commented_groups = {}
+        grouped_items = []
+        
+        for q in server_quotas:
+            client_name = q.comment.strip() if (q.comment and q.comment.strip()) else None
+            auto_cost = q.allocated_quota * backup_pr
+            
+            if client_name:
+                if client_name not in commented_groups:
+                    commented_groups[client_name] = {
+                        'client_name': client_name,
+                        'is_group': True,
+                        'quotas_list': [],
+                        'allocated_quota': 0,
+                        'actual_usage': 0.0,
+                        'auto_cost': 0.0,
+                        'manual_price': 0.0,
+                        'has_manual': False,
+                        'representative_quota_id': q.id
+                    }
+                g = commented_groups[client_name]
+                g['quotas_list'].append(q)
+                g['allocated_quota'] += q.allocated_quota
+                g['actual_usage'] += q.actual_usage
+                g['auto_cost'] += auto_cost
+                if q.manual_price is not None:
+                    g['manual_price'] += q.manual_price
+                    g['has_manual'] = True
+            else:
+                grouped_items.append({
+                    'client_name': q.company_name,
+                    'is_group': False,
+                    'quotas_list': [q],
+                    'allocated_quota': q.allocated_quota,
+                    'actual_usage': q.actual_usage,
+                    'auto_cost': auto_cost,
+                    'manual_price': q.manual_price if q.manual_price is not None else 0.0,
+                    'has_manual': q.manual_price is not None,
+                    'representative_quota_id': q.id
+                })
+                
+        for g in commented_groups.values():
+            grouped_items.append(g)
+            
+        processed_items = []
+        server_income = 0.0
+        
+        for item in grouped_items:
+            income = item['manual_price'] if item['has_manual'] else item['auto_cost']
+            total_quotas_revenue += income
+            server_income += income
+            
+            if item['is_group']:
+                other_names = [q.company_name for q in item['quotas_list']]
+                note = f"аккаунты: {', '.join(other_names)}"
+            else:
+                note = "Аккаунт"
+                
+            processed_items.append({
+                'client_name': item['client_name'],
+                'is_group': item['is_group'],
+                'allocated_quota': item['allocated_quota'],
+                'actual_usage': round(item['actual_usage'], 2),
+                'auto_cost': item['auto_cost'],
+                'manual_price': item['manual_price'],
+                'has_manual': item['has_manual'],
+                'representative_quota_id': item['representative_quota_id'],
+                'current_cost': income,
+                'note': note
+            })
+            
+        backup_servers_data.append({
+            'server': s,
+            'grouped_items': processed_items,
+            'total_income': server_income,
+            'backup_price_gb': backup_pr
         })
-
-    backup_servers = Server.query.filter_by(deleted=False, type='backup_ssh').all()
 
     return render_template('pricing.html', 
                            policy=policy, 
                            clusters_data=clusters_data,
                            standalone_hosts=standalone_hosts, 
-                           quotas=quotas_pricing,
-                           backup_servers=backup_servers,
+                           backup_servers_data=backup_servers_data,
                            total_vms_revenue=round(total_vms_revenue, 2),
                            total_quotas_revenue=round(total_quotas_revenue, 2))
 
