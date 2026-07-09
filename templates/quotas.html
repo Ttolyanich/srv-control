@@ -154,7 +154,7 @@
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
                             {% if current_user.role == 'admin' %}
-                            <form action="{{ url_for('delete_quota', quota_id=q.id) }}" method="POST" style="display: inline-block; margin: 0;" onsubmit="return confirm('Удалить квоту компании {{ q.company_name }}?')">
+                            <form action="{{ url_for('delete_quota', quota_id=q.id) }}" method="POST" style="display: inline-block; margin: 0;" onsubmit="if(confirm('Удалить квоту компании {{ q.company_name }}?')) { event.preventDefault(); submitQuotaDeleteFormAjax(this); } else { return false; }">
                                 <button type="submit" class="btn btn-danger btn-sm" title="Удалить квоту" style="padding: 6px; display: flex; align-items: center; justify-content: center;">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                                 </button>
@@ -197,7 +197,7 @@
                 <h3 class="modal-title">Добавление квоты для сервера: <span id="modal-server-name"></span></h3>
                 <button class="modal-close" onclick="closeModal('add-quota-modal')">&times;</button>
             </div>
-            <form id="add-quota-form" method="POST" action="">
+            <form id="add-quota-form" method="POST" action="" onsubmit="event.preventDefault(); submitQuotaFormAjax(this);">
                 <div class="form-group">
                     <label for="company_name">Название компании</label>
                     <input type="text" id="company_name" name="company_name" class="form-control" placeholder="Например, Масло LLC" required>
@@ -243,7 +243,7 @@
                 <h3 class="modal-title">Редактирование квоты: <span id="edit-modal-title"></span></h3>
                 <button class="modal-close" onclick="closeModal('edit-quota-modal')">&times;</button>
             </div>
-            <form id="edit-quota-form" method="POST" action="">
+            <form id="edit-quota-form" method="POST" action="" onsubmit="event.preventDefault(); submitQuotaFormAjax(this);">
                 <!-- Warning note for synchronized backup server -->
                 <div id="backup-warning-note" style="display: none; margin-bottom: 16px; padding: 10px 12px; border-radius: 8px; font-size: 12px; background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: var(--status-warning);">
                     ⚠️ Настройки этой квоты синхронизируются по SSH. Вы можете отредактировать только комментарий.

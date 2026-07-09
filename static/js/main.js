@@ -392,6 +392,56 @@ function refreshCurrentPageContent() {
         });
 }
 
+function submitQuotaFormAjax(form) {
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '⌛';
+
+    fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+        if (response.ok) {
+            // Закрываем модальное окно
+            const modal = form.closest('.modal');
+            if (modal) {
+                modal.classList.remove('show');
+            }
+            showToast('Изменения успешно сохранены', 'success');
+            refreshCurrentPageContent();
+        } else {
+            showToast('Произошла ошибка при сохранении квоты', 'error');
+        }
+    })
+    .catch(err => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+        showToast('Сетевая ошибка при отправке запроса: ' + err, 'error');
+    });
+}
+
+function submitQuotaDeleteFormAjax(form) {
+    fetch(form.action, {
+        method: 'POST'
+    })
+    .then(response => {
+        if (response.ok) {
+            showToast('Квота успешно удалена', 'success');
+            refreshCurrentPageContent();
+        } else {
+            showToast('Произошла ошибка при удалении квоты', 'error');
+        }
+    })
+    .catch(err => {
+        showToast('Сетевая ошибка при удалении: ' + err, 'error');
+    });
+}
+
 // --- Логика кастомного выпадающего списка (Custom Select) ---
 function toggleCustomSelect(trigger) {
     const container = trigger.closest('.custom-select-container');
