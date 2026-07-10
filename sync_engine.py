@@ -249,10 +249,10 @@ def sync_proxmox(server, config):
                                     
                                     # Ищем размер (например, size=32G)
                                     size_gb = 0
-                                    size_match = re.search(r'size=(\d+)([GMT]?)', val)
+                                    size_match = re.search(r'size=(\d+)([GMTgmt]?)', val)
                                     if size_match:
                                         size_val = int(size_match.group(1))
-                                        unit = size_match.group(2)
+                                        unit = size_match.group(2).upper()
                                         if unit == 'G' or unit == '':
                                             size_gb = size_val
                                         elif unit == 'M':
@@ -333,22 +333,14 @@ def parse_repquota_output(output_text):
             continue
         
         parts = line.split()
-        if len(parts) >= 5:
+        if len(parts) >= 4:
             name = parts[0]
-            if not parts[1].isdigit():
+            idx = 2 if not parts[1].isdigit() else 1
+            if len(parts) >= idx + 3:
                 try:
-                    used = int(parts[2])
-                    soft = int(parts[3])
-                    hard = int(parts[4])
-                    limit = hard if hard > 0 else soft
-                    results[name] = {'used': used, 'hard': limit}
-                except ValueError:
-                    continue
-            else:
-                try:
-                    used = int(parts[1])
-                    soft = int(parts[2])
-                    hard = int(parts[3])
+                    used = int(parts[idx])
+                    soft = int(parts[idx+1])
+                    hard = int(parts[idx+2])
                     limit = hard if hard > 0 else soft
                     results[name] = {'used': used, 'hard': limit}
                 except ValueError:

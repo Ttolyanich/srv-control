@@ -1,7 +1,20 @@
+import os
+import base64
+import hashlib
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from cryptography.fernet import Fernet
 
 db = SQLAlchemy()
+
+def _get_fernet_cipher():
+    key = os.environ.get('FERNET_KEY')
+    if not key:
+        secret = os.environ.get('SECRET_KEY', 'srv_control_secret_key_9988_secure_prod')
+        hash_bytes = hashlib.sha256(secret.encode()).digest()
+        key = base64.urlsafe_b64encode(hash_bytes)
+    return Fernet(key)
+
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -95,32 +108,14 @@ class SyncConfig(db.Model):
             self.password_or_token = None
             return
         
-        import os, base64, hashlib
-        from cryptography.fernet import Fernet
-        
-        key = os.environ.get('FERNET_KEY')
-        if not key:
-            secret = os.environ.get('SECRET_KEY', 'srv_control_secret_key_9988_secure_prod')
-            hash_bytes = hashlib.sha256(secret.encode()).digest()
-            key = base64.urlsafe_b64encode(hash_bytes)
-        
-        f = Fernet(key)
+        f = _get_fernet_cipher()
         self.password_or_token = f.encrypt(password.encode()).decode()
 
     def get_password(self):
         if not self.password_or_token:
             return None
             
-        import os, base64, hashlib
-        from cryptography.fernet import Fernet
-        
-        key = os.environ.get('FERNET_KEY')
-        if not key:
-            secret = os.environ.get('SECRET_KEY', 'srv_control_secret_key_9988_secure_prod')
-            hash_bytes = hashlib.sha256(secret.encode()).digest()
-            key = base64.urlsafe_b64encode(hash_bytes)
-            
-        f = Fernet(key)
+        f = _get_fernet_cipher()
         try:
             # Fernet-токены обычно начинаются с gAAAAA
             # Если это не Fernet-токен, то decrypt выбросит ошибку, и мы вернем исходную строку
