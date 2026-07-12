@@ -5,7 +5,7 @@ services:
     image: ghcr.io/ttolyanich/srv-control:latest
     container_name: srv-control
     ports:
-      - "5002:5002"
+      - "${BIND_HOST:-127.0.0.1}:${BIND_PORT:-5002}:${BIND_PORT:-5002}"
     volumes:
       # Важно: монтируем папку с базой данных SQLite на хост, чтобы данные сохранялись при перезапуске контейнера
       - ./instance:/app/instance
