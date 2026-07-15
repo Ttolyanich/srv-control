@@ -1,8 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session, flash
 from models import db, User, Server, VirtualMachine, CompanyQuota, SyncConfig, ProxmoxStorage, PricingPolicy
+from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime
 from functools import wraps
+from collections import defaultdict, deque
 import os
+import time
+import secrets
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -13,8 +17,33 @@ from apscheduler.schedulers.background import BackgroundScheduler
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI', os.environ.get('DATABASE_URL', 'sqlite:///srv_control.db'))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-# Рекомендуется заменить SECRET_KEY на случайную строку в продакшене
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'srv_control_secret_key_9988_secure_prod')
+
+def _load_or_create_secret(filename, nbytes=32):
+    """Секрет из файла в instance/; при отсутствии генерируется и сохраняется."""
+    os.makedirs(app.instance_path, exist_ok=True)
+    path = os.path.join(app.instance_path, filename)
+    try:
+        with open(path, 'r') as f:
+            value = f.read().strip()
+            if value:
+                return value
+    except FileNotFoundError:
+        pass
+    value = secrets.token_hex(nbytes)
+    with open(path, 'w') as f:
+        f.write(value)
+    print(f"AUTO-CONFIG: Сгенерирован новый секрет и сохранен в {path}")
+    return value
+
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or _load_or_create_secret('.secret_key')
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
+
+# Токен для cron-запросов к API синхронизации. Проверка по remote_addr убрана:
+# за reverse-proxy все запросы приходят с 127.0.0.1, что открывало API всем.
+SYNC_API_TOKEN = os.environ.get('SYNC_API_TOKEN') or _load_or_create_secret('sync_token')
 
 # Инициализация базы данных
 db.init_app(app)
@@ -37,6 +66,27 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 app.jinja_env.globals.update(min=min, max=max, round=round)
 
 # -------------------- Декораторы безопасности --------------------
+
+# Простой in-memory ограничитель попыток входа (на процесс)
+_login_attempts = defaultdict(deque)
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW_SECONDS = 300
+
+def login_rate_limited(key):
+    now = time.time()
+    attempts = _login_attempts[key]
+    while attempts and attempts[0] < now - LOGIN_WINDOW_SECONDS:
+        attempts.popleft()
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def register_failed_login(key):
+    _login_attempts[key].append(time.time())
+
+def sync_access_allowed():
+    token = request.headers.get('X-Sync-Token') or request.args.get('token')
+    if token and secrets.compare_digest(token, SYNC_API_TOKEN):
+        return True
+    return ('user_id' in session) and (session.get('role') in ['admin', 'financier'])
 
 def login_required(f):
     @wraps(f)
@@ -136,9 +186,13 @@ def login():
         return redirect(url_for('index'))
         
     if request.method == 'POST':
+        if login_rate_limited(request.remote_addr):
+            flash("Слишком много неудачных попыток входа. Попробуйте позже.")
+            return render_template('login.html')
+
         username = request.form['username'].strip()
         password = request.form['password']
-        
+
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             session['user_id'] = user.id
@@ -146,6 +200,7 @@ def login():
             session['role'] = user.role
             return redirect(url_for('index'))
         else:
+            register_failed_login(request.remote_addr)
             flash("Неверное имя пользователя или пароль!")
             
     return render_template('login.html')
@@ -245,7 +300,7 @@ def delete_user(user_id):
 @app.route('/')
 @login_required
 def index():
-    all_servers = Server.query.filter_by(deleted=False).filter(Server.type.in_(['manual', 'proxmox_node'])).all()
+    all_servers = Server.query.options(selectinload(Server.virtual_machines)).filter_by(deleted=False).filter(Server.type.in_(['manual', 'proxmox_node'])).all()
     
     servers_data_map = {}
     total_phys_resources = {'cpu': 0, 'ram': 0, 'ssd': 0, 'hdd': 0}
@@ -298,11 +353,15 @@ def index():
     
     clusters = {}
     standalone = []
-    
+
+    # Родительские кластеры выбираем одним запросом вместо запроса на каждый сервер
+    parent_ids = {d['server'].parent_id for d in servers_data_map.values() if d['server'].parent_id}
+    parents_map = {p.id: p for p in Server.query.filter(Server.id.in_(parent_ids)).all()} if parent_ids else {}
+
     for s_id, s_data in servers_data_map.items():
         s = s_data['server']
         if s.parent_id:
-            parent = Server.query.get(s.parent_id)
+            parent = parents_map.get(s.parent_id)
             if parent:
                 if parent.id not in clusters:
                     clusters[parent.id] = {
@@ -649,16 +708,18 @@ def pricing():
         db.session.commit()
         return redirect(url_for('pricing'))
 
-    vms = VirtualMachine.query.filter_by(deleted=False).all()
-    
+    vms = VirtualMachine.query.options(joinedload(VirtualMachine.server)).filter_by(deleted=False).all()
+
     # Сначала группируем ВМ по серверам (хостам)
     vms_by_server = {}
+    servers_by_id = {}
     for vm in vms:
         srv = vm.server
         if not srv:
             continue
         if srv.id not in vms_by_server:
             vms_by_server[srv.id] = []
+            servers_by_id[srv.id] = srv
         vms_by_server[srv.id].append(vm)
 
     # Инициализируем кластеры
@@ -686,8 +747,8 @@ def pricing():
         return policy.cpu_price, policy.ram_price_gb, policy.ssd_price_gb, policy.hdd_price_gb, 'global'
         
     for srv_id, srv_vms in vms_by_server.items():
-        srv = Server.query.get(srv_id)
-        if not srv or srv.deleted:
+        srv = servers_by_id[srv_id]
+        if srv.deleted:
             continue
             
         # Определяем эффективные тарифы хоста (свой -> кластера -> глобальный)
@@ -1088,10 +1149,8 @@ def save_sync_interval():
 
 @app.route('/api/sync/<int:server_id>')
 def sync_server(server_id):
-    # Разрешаем cron-запросы (localhost) или роли admin/financier
-    is_local = request.remote_addr in ['127.0.0.1', '::1', 'localhost']
-    is_auth = ('user_id' in session) and (session.get('role') in ['admin', 'financier'])
-    if not (is_local or is_auth):
+    # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
+    if not sync_access_allowed():
         return jsonify({'status': 'error', 'message': 'Доступ запрещен'}), 403
     server = Server.query.get_or_404(server_id)
     
@@ -1130,10 +1189,8 @@ def sync_server(server_id):
 
 @app.route('/api/sync/all')
 def sync_all():
-    # Разрешаем cron-запросы (localhost) или роли admin/financier
-    is_local = request.remote_addr in ['127.0.0.1', '::1', 'localhost']
-    is_auth = ('user_id' in session) and (session.get('role') in ['admin', 'financier'])
-    if not (is_local or is_auth):
+    # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
+    if not sync_access_allowed():
         return jsonify({'status': 'error', 'message': 'Доступ запрещен'}), 403
     servers = Server.query.filter_by(deleted=False).filter(Server.type.in_(['proxmox', 'backup_ssh'])).all()
     from sync_engine import run_sync

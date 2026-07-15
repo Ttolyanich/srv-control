@@ -41,12 +41,15 @@
 
 | Переменная | Описание | Значение по умолчанию |
 | :--- | :--- | :---: |
-| `SECRET_KEY` | Секретный ключ подписи Flask сессий | `srv_control_secure_token...` |
-| `FERNET_KEY` | Ключ шифрования PVE/SSH паролей в БД (`Fernet.generate_key()`) | *Генерируется на базе SECRET_KEY* |
+| `SECRET_KEY` | Секретный ключ подписи Flask сессий | *Автогенерация в `instance/.secret_key`* |
+| `FERNET_KEY` | Ключ шифрования PVE/SSH паролей в БД (`Fernet.generate_key()`) | *Генерируется на базе SECRET_KEY (рекомендуется задать явно)* |
+| `SYNC_API_TOKEN` | Токен доступа к `/api/sync/*` для cron/скриптов | *Автогенерация в `instance/sync_token`* |
 | `DATABASE_URI` | Подключение к БД | `sqlite:///srv_control.db` |
 | `BIND_HOST` | Хост для запуска веб-сервера | `0.0.0.0` |
 | `BIND_PORT` | Порт для запуска веб-сервера | `5002` |
 | `FLASK_DEBUG` | Режим разработки (1) или продакшна (0) | `0` |
+
+> **Доступ к API синхронизации.** Эндпоинты `/api/sync/<id>` и `/api/sync/all` больше не доверяют запросам с `127.0.0.1` (за reverse-proxy так выглядят все запросы). Для вызова из cron передавайте токен: `curl -H "X-Sync-Token: $(cat instance/sync_token)" http://127.0.0.1:5002/api/sync/all`. Из браузера под учеткой admin/financier всё работает как раньше.
 
 ---
 
