@@ -284,11 +284,21 @@ def sync_proxmox(server, config):
 
                 active_vmid_list.append(vmid)
 
-                # Ищем ВМ в нашей базе именно для этой ноды
+                # Ищем ВМ в нашей базе: сначала на текущей ноде, а если не найдена — на других нодах кластера (миграция)
                 db_vm = VirtualMachine.query.filter_by(server_id=db_node.id, vmid=vmid).first()
                 if not db_vm:
-                    db_vm = VirtualMachine(server_id=db_node.id, vmid=vmid)
-                    db.session.add(db_vm)
+                    cluster_node_ids = [n.id for n in Server.query.filter_by(parent_id=server.id).all()]
+                    if cluster_node_ids:
+                        db_vm = VirtualMachine.query.filter(
+                            VirtualMachine.server_id.in_(cluster_node_ids),
+                            VirtualMachine.vmid == vmid
+                        ).first()
+                    if db_vm:
+                        # ВМ смигрировала на эту ноду — перепривязываем хост с сохранением всех комментариев и ручных цен
+                        db_vm.server_id = db_node.id
+                    else:
+                        db_vm = VirtualMachine(server_id=db_node.id, vmid=vmid)
+                        db.session.add(db_vm)
 
                 db_vm.name = name
                 db_vm.cpu = cpu_allocated
