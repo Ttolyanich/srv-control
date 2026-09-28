@@ -17,14 +17,14 @@
             </svg>
             Экспорт в CSV
         </a>
-        <button onclick="window.print()" class="btn btn-secondary" title="Распечатать отчет или сохранить в PDF">
+        <a href="{{ url_for('companies_print_report') }}" target="_blank" class="btn btn-secondary" title="Открыть официальную печатную форму отчета (A4 / PDF)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="6 9 6 2 18 2 18 9"></polyline>
                 <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
                 <rect x="6" y="14" width="12" height="8"></rect>
             </svg>
-            Печать
-        </button>
+            Печать отчета
+        </a>
     </div>
 </div>
 
@@ -392,8 +392,12 @@
     transform: rotate(90deg);
     color: var(--accent-red) !important;
 }
+@page {
+    size: A4 landscape;
+    margin: 10mm 12mm;
+}
 @media print {
-    .sidebar, .page-header .actions, .card, th:last-child, td:last-child {
+    .sidebar, .page-header .actions, .card, .metrics-grid, .chevron-arrow, th:last-child, td:last-child {
         display: none !important;
     }
     .main-content {
@@ -401,8 +405,50 @@
         width: 100% !important;
         padding: 0 !important;
     }
-    .company-details-row {
-        display: table-row !important;
+    .page-header {
+        margin-bottom: 12px !important;
+    }
+    .page-title {
+        font-size: 16pt !important;
+        color: #000000 !important;
+    }
+    .page-subtitle {
+        font-size: 9pt !important;
+        color: #4b5563 !important;
+    }
+    .table-container {
+        overflow: visible !important;
+        border: none !important;
+        box-shadow: none !important;
+        margin-bottom: 0 !important;
+        background: transparent !important;
+    }
+    #companies-table {
+        border-collapse: collapse !important;
+        font-size: 8.5pt !important;
+        width: 100% !important;
+    }
+    #companies-table th {
+        background-color: #e5e7eb !important;
+        color: #000000 !important;
+        border: 1px solid #9ca3af !important;
+        padding: 6px 8px !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+    #companies-table td {
+        border: 1px solid #d1d5db !important;
+        padding: 5px 8px !important;
+        color: #000000 !important;
+    }
+    #companies-table tbody tr:nth-child(even) {
+        background-color: #f9fafb !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+    tr {
+        page-break-inside: avoid !important;
+    }
+    thead {
+        display: table-header-group !important;
     }
     body {
         background: #ffffff !important;

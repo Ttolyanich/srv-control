@@ -1232,6 +1232,23 @@ def companies_report():
     return render_template('companies_report.html', companies=companies_list, totals=totals)
 
 
+@app.route('/companies/print')
+@login_required
+def companies_print_report():
+    companies_list, totals = get_companies_report_data()
+    show_details = request.args.get('details', '0') == '1'
+    user = User.query.get(session.get('user_id'))
+    current_time = datetime.now().strftime('%d.%m.%Y %H:%M')
+    return render_template(
+        'companies_print.html',
+        companies=companies_list,
+        totals=totals,
+        show_details=show_details,
+        generated_at=current_time,
+        current_username=user.username if user else 'Пользователь'
+    )
+
+
 @app.route('/companies/export/csv')
 @login_required
 def export_companies_csv():

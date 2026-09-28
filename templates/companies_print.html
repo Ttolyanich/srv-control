@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Печатная форма: Отчет по компаниям и ресурсам | SRV-Control</title>
+    <style>
+        /* CSS Reset & Document Base */
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #111827;
+            background-color: #f3f4f6;
+            font-size: 11pt;
+            line-height: 1.35;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        /* Interactive Screen Toolbar (Hidden on Print) */
+        .toolbar {
+            background-color: #1e293b;
+            color: #ffffff;
+            padding: 12px 24px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+
+        .toolbar-left, .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toolbar-title {
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.3px;
+        }
+
+        .btn-tb {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+        }
+
+        .btn-tb-primary {
+            background-color: #9D071E;
+            color: #ffffff;
+        }
+        .btn-tb-primary:hover {
+            background-color: #be123c;
+        }
+
+        .btn-tb-secondary {
+            background-color: #334155;
+            color: #f1f5f9;
+            border-color: #475569;
+        }
+        .btn-tb-secondary:hover {
+            background-color: #475569;
+        }
+
+        .btn-tb-outline {
+            background-color: transparent;
+            color: #cbd5e1;
+            border-color: #475569;
+        }
+        .btn-tb-outline:hover {
+            background-color: #334155;
+            color: #ffffff;
+        }
+
+        /* Printable Document Sheet Simulation */
+        .document-wrapper {
+            max-width: 297mm; /* A4 Landscape width */
+            margin: 24px auto;
+            background-color: #ffffff;
+            padding: 16mm 20mm;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+        }
+
+        /* Document Header */
+        .doc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2.5px solid #9D071E;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #9D071E;
+            color: #ffffff;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            letter-spacing: -0.3px;
+        }
+
+        .brand-subtitle {
+            font-size: 9pt;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 1px;
+        }
+
+        .doc-meta {
+            text-align: right;
+            font-size: 9pt;
+            color: #4b5563;
+            line-height: 1.4;
+        }
+
+        .doc-meta strong {
+            color: #111827;
+        }
+
+        /* Report Main Title */
+        .report-title-block {
+            margin-bottom: 16px;
+        }
+
+        .report-title {
+            font-size: 15pt;
+            font-weight: 700;
+            color: #111827;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        .report-desc {
+            font-size: 9.5pt;
+            color: #4b5563;
+        }
+
+        /* Executive KPI Summary Table */
+        .kpi-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            background-color: #f9fafb;
+            border: 1px solid #d1d5db;
+        }
+
+        .kpi-table th {
+            padding: 6px 10px;
+            font-size: 8.5pt;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #4b5563;
+            border: 1px solid #d1d5db;
+            background-color: #f3f4f6;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .kpi-table td {
+            padding: 8px 10px;
+            font-size: 11pt;
+            font-weight: 700;
+            color: #111827;
+            border: 1px solid #d1d5db;
+            text-align: center;
+        }
+
+        /* Main Data Table */
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+            color: #111827;
+        }
+
+        .report-table thead {
+            display: table-header-group;
+        }
+
+        .report-table th {
+            background-color: #e5e7eb;
+            color: #111827;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 8pt;
+            letter-spacing: 0.3px;
+            padding: 7px 6px;
+            border: 1px solid #9ca3af;
+            text-align: right;
+            vertical-align: middle;
+        }
+
+        .report-table th:first-child,
+        .report-table th:nth-child(2) {
+            text-align: left;
+        }
+
+        .report-table td {
+            padding: 6px 6px;
+            border: 1px solid #d1d5db;
+            text-align: right;
+            vertical-align: middle;
+        }
+
+        .report-table td:first-child,
+        .report-table td:nth-child(2) {
+            text-align: left;
+        }
+
+        .report-table tbody tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+
+        .report-table tfoot td {
+            font-weight: 700;
+            background-color: #e5e7eb;
+            border: 1px solid #9ca3af;
+            padding: 8px 6px;
+            font-size: 9pt;
+        }
+
+        .company-name-cell {
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .num-cell {
+            color: #6b7280;
+            text-align: center !important;
+            width: 32px;
+        }
+
+        .zero-val {
+            color: #9ca3af;
+        }
+
+        /* Details sub-tables */
+        .details-container {
+            padding: 8px 12px 12px 24px;
+            background-color: #ffffff;
+            border-left: 3px solid #9D071E;
+            margin: 4px 0 8px 0;
+        }
+
+        .sub-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8pt;
+            margin-top: 6px;
+        }
+
+        .sub-table th {
+            background-color: #f3f4f6;
+            color: #4b5563;
+            font-size: 7.5pt;
+            padding: 4px 6px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .sub-table td {
+            padding: 4px 6px;
+            border: 1px solid #e5e7eb;
+        }
+
+        /* Print Page Layout & Media */
+        @page {
+            size: A4 landscape;
+            margin: 10mm 12mm 12mm 12mm;
+        }
+
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                font-size: 8.5pt;
+            }
+
+            .document-wrapper {
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+            }
+
+            .report-table th {
+                background-color: #e5e7eb !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+
+            .report-table tbody tr:nth-child(even) {
+                background-color: #f9fafb !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+
+            .report-table tfoot td {
+                background-color: #e5e7eb !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+
+            tr {
+                page-break-inside: avoid;
+            }
+
+            .doc-header {
+                border-bottom: 2px solid #9D071E !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Screen Interactive Control Toolbar -->
+    <div class="toolbar no-print">
+        <div class="toolbar-left">
+            <a href="{{ url_for('companies_report') }}" class="btn-tb btn-tb-outline" title="Вернуться к интерактивному отчету">
+                ← Вернуться в систему
+            </a>
+            <span class="toolbar-title">Печатная форма отчета по компаниям</span>
+        </div>
+        <div class="toolbar-right">
+            {% if show_details %}
+                <a href="{{ url_for('companies_print_report', details='0') }}" class="btn-tb btn-tb-secondary" title="Показать только компактный реестр компаний">
+                    Режим: Краткая ведомость
+                </a>
+            {% else %}
+                <a href="{{ url_for('companies_print_report', details='1') }}" class="btn-tb btn-tb-secondary" title="Показать с подробным составом ВМ и бэкапов">
+                    Режим: С детализацией ВМ
+                </a>
+            {% endif %}
+            <button onclick="window.print()" class="btn-tb btn-tb-primary" title="Распечатать или сохранить в PDF">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                    <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+                Распечатать / Сохранить в PDF
+            </button>
+        </div>
+    </div>
+
+    <!-- Formal Document Sheet -->
+    <div class="document-wrapper">
+        <!-- Header with Branding & Meta -->
+        <header class="doc-header">
+            <div class="brand-logo">
+                <div class="brand-logo-icon">SC</div>
+                <div>
+                    <div class="brand-title">SRV-Control</div>
+                    <div class="brand-subtitle">Учет вычислительных мощностей и хранилищ</div>
+                </div>
+            </div>
+            <div class="doc-meta">
+                <div><strong>ОФИЦИАЛЬНАЯ ВЕДОМОСТЬ РЕСУРСОВ</strong></div>
+                <div>Дата формирования: <strong>{{ generated_at }}</strong></div>
+                <div>Сформировал: <strong>{{ current_username }}</strong></div>
+            </div>
+        </header>
+
+        <!-- Title Block -->
+        <div class="report-title-block">
+            <h1 class="report-title">Сводный отчет по использованию инфраструктурных ресурсов</h1>
+            <p class="report-desc">
+                Реестр компаний и клиентов с указанием выделенных вычислительных характеристик (CPU, RAM, дисковое пространство) и дисковых квот резервного копирования.
+                {% if show_details %}<em>(Включена детализация по виртуальным машинам и аккаунтам бэкапа)</em>{% endif %}
+            </p>
+        </div>
+
+        <!-- Executive KPI Summary Table -->
+        <table class="kpi-table">
+            <thead>
+                <tr>
+                    <th>Компаний</th>
+                    <th>Всего ВМ</th>
+                    <th>CPU (Конфиг)</th>
+                    <th>RAM (Память)</th>
+                    <th>SSD (Диски)</th>
+                    <th>HDD (Диски)</th>
+                    <th>Диски суммарно</th>
+                    <th>Квота бэкапа</th>
+                    <th>Факт бэкапа</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ totals.total_companies }}</td>
+                    <td>{{ totals.total_vms_count }} шт.</td>
+                    <td>{{ totals.total_cpu }} ядер</td>
+                    <td>{{ totals.total_ram }} ГБ</td>
+                    <td>{{ totals.total_ssd }} ГБ</td>
+                    <td>{{ totals.total_hdd }} ГБ</td>
+                    <td>{{ totals.total_disk }} ГБ</td>
+                    <td>{{ totals.total_quota_allocated }} ГБ</td>
+                    <td>{{ totals.total_quota_used }} ГБ</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Main Report Data Table -->
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px; text-align: center;">№</th>
+                    <th style="min-width: 170px;">Компания / Клиент</th>
+                    <th style="width: 65px;">CPU (ядер)</th>
+                    <th style="width: 70px;">RAM (ГБ)</th>
+                    <th style="width: 75px;">SSD (ГБ)</th>
+                    <th style="width: 75px;">HDD (ГБ)</th>
+                    <th style="width: 85px;">Диск ВМ (ГБ)</th>
+                    <th style="width: 90px;">Бэкап: Квота</th>
+                    <th style="width: 90px;">Бэкап: Факт</th>
+                    <th style="width: 50px; text-align: center;">ВМ</th>
+                    <th style="width: 55px; text-align: center;">Бэкап</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in companies %}
+                <tr>
+                    <td class="num-cell">{{ loop.index }}</td>
+                    <td class="company-name-cell">{{ c.name }}</td>
+                    <td class="{% if c.cpu == 0 %}zero-val{% endif %}">{{ c.cpu if c.cpu > 0 else '—' }}</td>
+                    <td class="{% if c.ram == 0 %}zero-val{% endif %}">{{ c.ram if c.ram > 0 else '—' }}</td>
+                    <td class="{% if c.ssd == 0 %}zero-val{% endif %}">{{ c.ssd if c.ssd > 0 else '—' }}</td>
+                    <td class="{% if c.hdd == 0 %}zero-val{% endif %}">{{ c.hdd if c.hdd > 0 else '—' }}</td>
+                    <td class="{% if c.total_disk == 0 %}zero-val{% endif %}"><strong>{{ c.total_disk if c.total_disk > 0 else '—' }}</strong></td>
+                    <td class="{% if c.quota_allocated == 0 %}zero-val{% endif %}">{{ c.quota_allocated if c.quota_allocated > 0 else '—' }}</td>
+                    <td class="{% if c.quota_used == 0 %}zero-val{% endif %}">{{ c.quota_used if c.quota_used > 0 else '—' }}</td>
+                    <td style="text-align: center;" class="{% if (c.vms | length) == 0 %}zero-val{% endif %}">
+                        {{ c.vms | length if (c.vms | length) > 0 else '—' }}
+                    </td>
+                    <td style="text-align: center;" class="{% if (c.quotas | length) == 0 %}zero-val{% endif %}">
+                        {{ c.quotas | length if (c.quotas | length) > 0 else '—' }}
+                    </td>
+                </tr>
+
+                {% if show_details and ((c.vms | length) > 0 or (c.quotas | length) > 0) %}
+                <tr>
+                    <td></td>
+                    <td colspan="10" style="padding: 0; background: #ffffff;">
+                        <div class="details-container">
+                            {% if (c.vms | length) > 0 %}
+                            <div style="font-weight: 600; font-size: 8pt; color: #374151; margin-bottom: 2px;">
+                                Виртуальные машины компании:
+                            </div>
+                            <table class="sub-table" style="margin-bottom: 6px;">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left;">VMID</th>
+                                        <th style="text-align: left;">Имя виртуальной машины</th>
+                                        <th style="text-align: left;">Кластер / Нода</th>
+                                        <th style="text-align: right;">CPU</th>
+                                        <th style="text-align: right;">RAM (ГБ)</th>
+                                        <th style="text-align: right;">SSD (ГБ)</th>
+                                        <th style="text-align: right;">HDD (ГБ)</th>
+                                        <th style="text-align: center;">Статус</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for vm in c.vms %}
+                                    <tr>
+                                        <td>{{ vm.vmid or '—' }}</td>
+                                        <td style="font-weight: 500;">{{ vm.name }}</td>
+                                        <td>{{ vm.server_name }}</td>
+                                        <td style="text-align: right;">{{ vm.cpu }}</td>
+                                        <td style="text-align: right;">{{ vm.ram }}</td>
+                                        <td style="text-align: right;">{{ vm.ssd }}</td>
+                                        <td style="text-align: right;">{{ vm.hdd }}</td>
+                                        <td style="text-align: center;">{{ vm.status }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% endif %}
+
+                            {% if (c.quotas | length) > 0 %}
+                            <div style="font-weight: 600; font-size: 8pt; color: #374151; margin-bottom: 2px;">
+                                Аккаунты бэкапа компании:
+                            </div>
+                            <table class="sub-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left;">Аккаунт</th>
+                                        <th style="text-align: left;">Системное имя</th>
+                                        <th style="text-align: left;">Сервер бэкапа</th>
+                                        <th style="text-align: center;">Тип</th>
+                                        <th style="text-align: right;">Квота по договору (ГБ)</th>
+                                        <th style="text-align: right;">Лимит в ОС (ГБ)</th>
+                                        <th style="text-align: right;">Занято по факту (ГБ)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for q in c.quotas %}
+                                    <tr>
+                                        <td style="font-weight: 500;">{{ q.company_name }}</td>
+                                        <td style="color: #6b7280; font-family: monospace;">{{ q.system_name }}</td>
+                                        <td>{{ q.server_name }}</td>
+                                        <td style="text-align: center; text-transform: uppercase;">{{ q.system_type }}</td>
+                                        <td style="text-align: right;">{{ q.allocated_quota }}</td>
+                                        <td style="text-align: right;">{{ q.system_hard_limit }}</td>
+                                        <td style="text-align: right;">{{ q.actual_usage }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2" style="text-align: left;">ИТОГО ПО ВСЕМ КОМПАНИЯМ ({{ totals.total_companies }})</td>
+                    <td>{{ totals.total_cpu }}</td>
+                    <td>{{ totals.total_ram }}</td>
+                    <td>{{ totals.total_ssd }}</td>
+                    <td>{{ totals.total_hdd }}</td>
+                    <td>{{ totals.total_disk }}</td>
+                    <td>{{ totals.total_quota_allocated }}</td>
+                    <td>{{ totals.total_quota_used }}</td>
+                    <td style="text-align: center;">{{ totals.total_vms_count }}</td>
+                    <td style="text-align: center;">{{ totals.total_quotas_count }}</td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <!-- Document Footer Note -->
+        <footer style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 8pt; color: #9ca3af;">
+            <div>Документ сформирован автоматически в системе SRV-Control</div>
+            <div>Конфиденциально • Для внутреннего использования</div>
+        </footer>
+    </div>
+
+</body>
+</html>
