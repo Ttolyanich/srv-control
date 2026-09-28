@@ -26,5 +26,5 @@ RUN mkdir -p instance
 
 EXPOSE 5002
 
-# Запуск приложения в продакшн-режиме через gunicorn
-CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:5002", "app:app"]
+# Запуск приложения в продакшн-режиме через gunicorn с таймаутом 300с для длительных синхронизаций
+CMD ["gunicorn", "--workers", "3", "--timeout", "300", "--bind", "0.0.0.0:5002", "app:app"]

@@ -1116,6 +1116,188 @@ def update_host_expense():
     db.session.commit()
     return jsonify({'status': 'success', 'message': f'Расходы хоста {server.name} успешно обновлены!'})
 
+# -------------------- Отчет по компаниям и ресурсам --------------------
+
+def get_companies_report_data():
+    vms = VirtualMachine.query.options(
+        joinedload(VirtualMachine.server).joinedload(Server.parent)
+    ).filter_by(deleted=False).all()
+
+    quotas = CompanyQuota.query.options(
+        joinedload(CompanyQuota.server)
+    ).filter_by(is_hidden=False).all()
+
+    companies_dict = {}
+
+    def get_or_create_company(display_name, key=None):
+        norm_key = (key or display_name).strip().lower()
+        if norm_key not in companies_dict:
+            companies_dict[norm_key] = {
+                'name': display_name.strip(),
+                'norm_key': norm_key,
+                'cpu': 0,
+                'ram': 0,
+                'ssd': 0,
+                'hdd': 0,
+                'total_disk': 0,
+                'quota_allocated': 0,
+                'quota_used': 0.0,
+                'vms': [],
+                'quotas': []
+            }
+        return companies_dict[norm_key]
+
+    # 1. Заполняем ВМ
+    for vm in vms:
+        display_name = vm.comment.strip() if (vm.comment and vm.comment.strip()) else vm.name.strip()
+        comp = get_or_create_company(display_name)
+        comp['cpu'] += vm.cpu or 0
+        comp['ram'] += vm.ram or 0
+        comp['ssd'] += vm.ssd or 0
+        comp['hdd'] += vm.hdd or 0
+        comp['total_disk'] += (vm.ssd or 0) + (vm.hdd or 0)
+        
+        server_info = vm.server.name if vm.server else "—"
+        if vm.server and vm.server.parent:
+            server_info = f"{vm.server.parent.name} / {vm.server.name}"
+            
+        comp['vms'].append({
+            'id': vm.id,
+            'name': vm.name,
+            'vmid': vm.vmid,
+            'server_name': server_info,
+            'cpu': vm.cpu or 0,
+            'ram': vm.ram or 0,
+            'ssd': vm.ssd or 0,
+            'hdd': vm.hdd or 0,
+            'status': vm.status or 'unknown'
+        })
+
+    # 2. Заполняем дисковые квоты
+    for q in quotas:
+        if q.comment and q.comment.strip():
+            display_name = q.comment.strip()
+            comp = get_or_create_company(display_name)
+        else:
+            raw_comp = q.company_name.strip()
+            lower_comp = raw_comp.lower()
+            if lower_comp in companies_dict:
+                comp = companies_dict[lower_comp]
+            elif lower_comp.startswith('g-') and lower_comp[2:] in companies_dict:
+                comp = companies_dict[lower_comp[2:]]
+            else:
+                comp = get_or_create_company(raw_comp)
+
+        comp['quota_allocated'] += q.allocated_quota or 0
+        comp['quota_used'] += q.actual_usage or 0.0
+
+        comp['quotas'].append({
+            'id': q.id,
+            'company_name': q.company_name,
+            'system_name': q.system_name or q.company_name,
+            'server_name': q.server.name if q.server else "—",
+            'system_type': q.system_type or 'user',
+            'allocated_quota': q.allocated_quota or 0,
+            'actual_usage': round(q.actual_usage or 0.0, 1),
+            'system_hard_limit': round(q.system_hard_limit or 0.0, 1)
+        })
+
+    for comp in companies_dict.values():
+        comp['quota_used'] = round(comp['quota_used'], 1)
+        comp['vms'].sort(key=lambda x: x['name'].lower())
+        comp['quotas'].sort(key=lambda x: x['company_name'].lower())
+
+    companies_list = sorted(companies_dict.values(), key=lambda x: x['name'].lower())
+
+    totals = {
+        'total_companies': len(companies_list),
+        'total_cpu': sum(c['cpu'] for c in companies_list),
+        'total_ram': sum(c['ram'] for c in companies_list),
+        'total_ssd': sum(c['ssd'] for c in companies_list),
+        'total_hdd': sum(c['hdd'] for c in companies_list),
+        'total_disk': sum(c['total_disk'] for c in companies_list),
+        'total_quota_allocated': sum(c['quota_allocated'] for c in companies_list),
+        'total_quota_used': round(sum(c['quota_used'] for c in companies_list), 1),
+        'total_vms_count': sum(len(c['vms']) for c in companies_list),
+        'total_quotas_count': sum(len(c['quotas']) for c in companies_list),
+    }
+
+    return companies_list, totals
+
+
+@app.route('/companies')
+@login_required
+def companies_report():
+    companies_list, totals = get_companies_report_data()
+    return render_template('companies_report.html', companies=companies_list, totals=totals)
+
+
+@app.route('/companies/export/csv')
+@login_required
+def export_companies_csv():
+    import csv
+    import io
+    companies_list, totals = get_companies_report_data()
+    
+    output = io.StringIO()
+    output.write('\ufeff')  # UTF-8 BOM для корректного отображения в Microsoft Excel
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+    
+    writer.writerow([
+        'Компания / Клиент',
+        'CPU (ядер)',
+        'RAM (ГБ)',
+        'SSD (ГБ)',
+        'HDD (ГБ)',
+        'Всего диск ВМ (ГБ)',
+        'Квота бэкапа (ГБ)',
+        'Факт бэкапа (ГБ)',
+        'Кол-во ВМ',
+        'Список виртуальных машин',
+        'Кол-во квот бэкапа',
+        'Список бэкап-аккаунтов'
+    ])
+    
+    for c in companies_list:
+        vms_str = ", ".join([f"{vm['name']} (CPU:{vm['cpu']}, RAM:{vm['ram']}G, SSD:{vm['ssd']}G, HDD:{vm['hdd']}G)" for vm in c['vms']])
+        quotas_str = ", ".join([f"{q['company_name']} ({q['server_name']}: выд.{q['allocated_quota']}G, факт {q['actual_usage']}G)" for q in c['quotas']])
+        
+        writer.writerow([
+            c['name'],
+            c['cpu'],
+            c['ram'],
+            c['ssd'],
+            c['hdd'],
+            c['total_disk'],
+            c['quota_allocated'],
+            c['quota_used'],
+            len(c['vms']),
+            vms_str,
+            len(c['quotas']),
+            quotas_str
+        ])
+        
+    writer.writerow([
+        'ИТОГО ПО ВСЕМ КОМПАНИЯМ',
+        totals['total_cpu'],
+        totals['total_ram'],
+        totals['total_ssd'],
+        totals['total_hdd'],
+        totals['total_disk'],
+        totals['total_quota_allocated'],
+        totals['total_quota_used'],
+        totals['total_vms_count'],
+        '',
+        totals['total_quotas_count'],
+        ''
+    ])
+    
+    response = make_response(output.getvalue())
+    filename = f"otchet_kompanii_resursy_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    return response
+
 # -------------------- Настройки --------------------
 
 @app.route('/settings')
@@ -1187,6 +1369,17 @@ def sync_server(server_id):
         db.session.commit()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/sync/servers')
+def sync_servers_list():
+    # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
+    if not sync_access_allowed():
+        return jsonify({'status': 'error', 'message': 'Доступ запрещен'}), 403
+    servers = Server.query.filter_by(deleted=False).filter(Server.type.in_(['proxmox', 'backup_ssh'])).all()
+    return jsonify({
+        'status': 'success',
+        'servers': [{'id': s.id, 'name': s.name, 'type': s.type} for s in servers]
+    })
+
 @app.route('/api/sync/all')
 def sync_all():
     # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
@@ -1209,8 +1402,13 @@ def sync_all():
         except Exception as e:
             s.status = 'offline'
             results.append({'server_id': s.id, 'name': s.name, 'status': 'error', 'message': str(e)})
+        # Фиксируем статус каждого сервера сразу
+        try:
+            db.session.commit()
+        except Exception as commit_err:
+            db.session.rollback()
+            print(f"Ошибка коммита статуса сервера {s.id}: {commit_err}")
             
-    db.session.commit()
     return jsonify({'status': 'completed', 'results': results})
 
 # -------------------- Автоматический планировщик --------------------

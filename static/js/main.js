@@ -255,70 +255,105 @@ function syncServer(serverId, button) {
         });
 }
 
-function syncAllServers() {
+async function syncAllServers() {
     const btn = document.getElementById('sync-all-btn');
     if (!btn) return;
     
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `
-        <svg class="spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; margin-right: 6px;">
-            <line x1="12" y1="2" x2="12" y2="6"></line>
-            <line x1="12" y1="18" x2="12" y2="22"></line>
-            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
-            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-            <line x1="2" y1="12" x2="6" y2="12"></line>
-            <line x1="18" y1="12" x2="22" y2="12"></line>
-            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
-            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-        </svg>
-        Синхронизация всех серверов...
-    `;
 
-    fetch('/api/sync/all')
-        .then(response => {
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                return response.json().then(data => ({ status: response.status, body: data }));
-            } else {
-                return response.text().then(text => ({ status: response.status, body: null, rawText: text }));
+    // Добавляем стиль для спиннера, если его еще нет
+    if (!document.getElementById('spinner-style')) {
+        const style = document.createElement('style');
+        style.id = 'spinner-style';
+        style.innerHTML = `
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
             }
-        })
-        .then(result => {
-            if (result.status === 200 && result.body) {
-                let successCount = 0;
-                let errorCount = 0;
-                result.body.results.forEach(res => {
-                    if (res.status === 'success') successCount++;
-                    else errorCount++;
-                });
-                
-                if (errorCount === 0) {
-                    showToast(`Синхронизация успешно завершена для всех серверов (${successCount})!`, 'success');
-                } else {
-                    showToast(`Синхронизация завершена. Успешно: ${successCount}, Ошибок: ${errorCount}.`, 'warning');
-                }
-                
-                setTimeout(() => {
-                    refreshCurrentPageContent();
-                }, 500);
-            } else if (result.body) {
-                showToast(`Ошибка: ${result.body.message}`, 'error');
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            } else {
-                console.error("Non-JSON response from server:", result.rawText);
-                const snippet = result.rawText ? result.rawText.substring(0, 150).replace(/</g, "&lt;").replace(/>/g, "&gt;") : "Empty response";
-                showToast(`Сетевая ошибка: Получен некорректный ответ от прокси/сервера. Статус: ${result.status}. Ответ: ${snippet}...`, 'error');
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            }
-        })
-        .catch(error => {
-            showToast(`Сетевая ошибка: ${error}`, 'error');
+        `;
+        document.head.appendChild(style);
+    }
+
+    const setBtnText = (text) => {
+        btn.innerHTML = `
+            <svg class="spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; margin-right: 6px;">
+                <line x1="12" y1="2" x2="12" y2="6"></line>
+                <line x1="12" y1="18" x2="12" y2="22"></line>
+                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                <line x1="2" y1="12" x2="6" y2="12"></line>
+                <line x1="18" y1="12" x2="22" y2="12"></line>
+                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+            </svg>
+            ${text}
+        `;
+    };
+
+    setBtnText('Подготовка к синхронизации...');
+
+    try {
+        const response = await fetch('/api/sync/servers');
+        if (!response.ok) {
+            throw new Error(`Ошибка сервера при получении списка (${response.status})`);
+        }
+        const data = await response.json();
+        const servers = data.servers || [];
+
+        if (servers.length === 0) {
+            showToast('Нет серверов для синхронизации', 'info');
             btn.disabled = false;
             btn.innerHTML = originalHtml;
-        });
+            return;
+        }
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        for (let i = 0; i < servers.length; i++) {
+            const s = servers[i];
+            setBtnText(`Синхронизация (${i + 1}/${servers.length}): ${s.name}...`);
+            
+            try {
+                const sResp = await fetch(`/api/sync/${s.id}`);
+                const contentType = sResp.headers.get("content-type");
+                let sData = null;
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    sData = await sResp.json();
+                }
+
+                if (sResp.ok && sData && sData.status === 'success') {
+                    successCount++;
+                } else {
+                    errorCount++;
+                    const msg = (sData && sData.message) ? sData.message : `HTTP ${sResp.status}`;
+                    errors.push(`${s.name}: ${msg}`);
+                }
+            } catch (err) {
+                errorCount++;
+                errors.push(`${s.name}: ${err.message || err}`);
+            }
+        }
+
+        if (errorCount === 0) {
+            showToast(`Синхронизация успешно завершена для всех серверов (${successCount})!`, 'success');
+        } else if (successCount > 0) {
+            showToast(`Синхронизация завершена. Успешно: ${successCount}, Ошибок: ${errorCount}. ${errors.join('; ')}`, 'warning');
+        } else {
+            showToast(`Ошибка синхронизации: ${errors.join('; ')}`, 'error');
+        }
+
+        setTimeout(() => {
+            refreshCurrentPageContent();
+        }, 500);
+
+    } catch (e) {
+        showToast(`Сетевая ошибка: ${e.message || e}`, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
 }
 
 function refreshCurrentPageContent() {
