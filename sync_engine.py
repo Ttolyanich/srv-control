@@ -2,6 +2,8 @@ import requests
 import paramiko
 import io
 import re
+import shlex
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from models import db, Server, VirtualMachine, CompanyQuota, SyncConfig, ProxmoxStorage
 
@@ -212,11 +214,74 @@ def sync_proxmox(server, config):
 
             all_resources = []
             for vm in vms:
+                if vm.get('template') == 1:
+                    continue
                 vm['type'] = 'qemu'
                 all_resources.append(vm)
             for lxc in lxcs:
+                if lxc.get('template') == 1:
+                    continue
                 lxc['type'] = 'lxc'
                 all_resources.append(lxc)
+
+            # 2.1 Параллельный опрос конфигов ВМ/LXC для быстрого разделения SSD и HDD
+            def fetch_vm_disks(item):
+                vmid = int(item.get('vmid'))
+                cfg_type = 'qemu' if item['type'] == 'qemu' else 'lxc'
+                cfg_url = f"{base_url}/nodes/{node_name}/{cfg_type}/{vmid}/config"
+                vm_ssd_val = 0.0
+                vm_hdd_val = 0.0
+                try:
+                    cfg_res = session.get(cfg_url, timeout=15)
+                    if cfg_res.status_code == 200:
+                        cfg_data = cfg_res.json().get("data", {})
+                        for key, val in cfg_data.items():
+                            if not isinstance(val, str):
+                                continue
+                            is_disk = False
+                            if item['type'] == 'qemu':
+                                is_disk = any(key.startswith(prefix) for prefix in ['ide', 'sata', 'scsi', 'virtio']) and 'media=cdrom' not in val
+                            else:
+                                is_disk = key == 'rootfs' or key.startswith('mp')
+
+                            if is_disk and ':' in val:
+                                parts = val.split(':')
+                                storage_id = parts[0].strip()
+
+                                size_gb = 0.0
+                                size_match = re.search(r'size=(\d+(?:\.\d+)?)([GMTgmt]?)', val)
+                                if size_match:
+                                    size_val = float(size_match.group(1))
+                                    unit = size_match.group(2).upper()
+                                    if unit == 'G' or unit == '':
+                                        size_gb = size_val
+                                    elif unit == 'M':
+                                        size_gb = size_val / 1024.0
+                                    elif unit == 'T':
+                                        size_gb = size_val * 1024.0
+                                else:
+                                    try:
+                                        second_part = parts[1].split(',')[0]
+                                        if second_part.isdigit():
+                                            size_gb = float(second_part)
+                                    except Exception:
+                                        pass
+
+                                if size_gb > 0:
+                                    store_type = storages_map.get(storage_id, 'ssd')
+                                    if store_type == 'ssd':
+                                        vm_ssd_val += size_gb
+                                    elif store_type == 'hdd':
+                                        vm_hdd_val += size_gb
+                except Exception as e:
+                    print(f"Не удалось прочесть конфиг дисков для VMID {vmid}: {e}")
+                return vmid, vm_ssd_val, vm_hdd_val
+
+            disks_by_vmid = {}
+            if all_resources:
+                with ThreadPoolExecutor(max_workers=8) as executor:
+                    for vmid_res, ssd_res, hdd_res in executor.map(fetch_vm_disks, all_resources):
+                        disks_by_vmid[vmid_res] = (ssd_res, hdd_res)
 
             for item in all_resources:
                 vmid = int(item.get('vmid'))
@@ -224,62 +289,15 @@ def sync_proxmox(server, config):
                 vm_status = item.get('status', 'stopped')
                 
                 cpu_allocated = int(item.get('cpus') or 1)
-                ram_allocated = int((item.get('maxmem') or 0) / (1024**3)) # ГБ
+                raw_ram_bytes = item.get('maxmem') or 0
+                ram_allocated = max(1, round(raw_ram_bytes / (1024**3))) if raw_ram_bytes > 0 else 0
                 
-                # 2.1 Подетальный опрос дисков для разделения SSD и HDD
-                vm_ssd = 0
-                vm_hdd = 0
-                try:
-                    cfg_type = 'qemu' if item['type'] == 'qemu' else 'lxc'
-                    cfg_url = f"{base_url}/nodes/{node_name}/{cfg_type}/{vmid}/config"
-                    cfg_res = session.get(cfg_url, timeout=15)
-                    if cfg_res.status_code == 200:
-                        cfg_data = cfg_res.json().get("data", {})
-                        for key, val in cfg_data.items():
-                            is_disk = False
-                            if item['type'] == 'qemu':
-                                is_disk = any(key.startswith(prefix) for prefix in ['ide', 'sata', 'scsi', 'virtio']) and 'media=cdrom' not in val
-                            else:
-                                is_disk = key == 'rootfs' or key.startswith('mp')
-                                
-                            if is_disk:
-                                if ':' in val:
-                                    parts = val.split(':')
-                                    storage_id = parts[0].strip()
-                                    
-                                    # Ищем размер (например, size=32G)
-                                    size_gb = 0
-                                    size_match = re.search(r'size=(\d+)([GMTgmt]?)', val)
-                                    if size_match:
-                                        size_val = int(size_match.group(1))
-                                        unit = size_match.group(2).upper()
-                                        if unit == 'G' or unit == '':
-                                            size_gb = size_val
-                                        elif unit == 'M':
-                                            size_gb = size_val / 1024
-                                        elif unit == 'T':
-                                            size_gb = size_val * 1024
-                                    else:
-                                        # LXC простой формат: "local-SSD:8"
-                                        try:
-                                            second_part = parts[1].split(',')[0]
-                                            if second_part.isdigit():
-                                                size_gb = int(second_part)
-                                        except Exception:
-                                            pass
-                                            
-                                    if size_gb > 0:
-                                        store_type = storages_map.get(storage_id, 'ssd') # по умолчанию ssd
-                                        if store_type == 'ssd':
-                                            vm_ssd += size_gb
-                                        elif store_type == 'hdd':
-                                            vm_hdd += size_gb
-                except Exception as e:
-                    print(f"Не удалось прочесть конфиг дисков для VMID {vmid}: {e}")
+                vm_ssd, vm_hdd = disks_by_vmid.get(vmid, (0.0, 0.0))
 
                 # Если не удалось распределить диски, падаем на дефолтное поведение (все в SSD)
                 if vm_ssd == 0 and vm_hdd == 0:
-                    disk_allocated = int((item.get('maxdisk') or 0) / (1024**3))
+                    raw_disk_bytes = item.get('maxdisk') or 0
+                    disk_allocated = max(1, round(raw_disk_bytes / (1024**3))) if raw_disk_bytes > 0 else 0
                     vm_ssd = disk_allocated
 
                 active_vmid_list.append(vmid)
@@ -303,8 +321,8 @@ def sync_proxmox(server, config):
                 db_vm.name = name
                 db_vm.cpu = cpu_allocated
                 db_vm.ram = int(ram_allocated)
-                db_vm.ssd = int(vm_ssd)
-                db_vm.hdd = int(vm_hdd)
+                db_vm.ssd = max(1, round(vm_ssd)) if vm_ssd > 0 else 0
+                db_vm.hdd = max(1, round(vm_hdd)) if vm_hdd > 0 else 0
                 db_vm.status = 'running' if vm_status == 'running' else 'stopped'
                 db_vm.deleted = False
 
@@ -329,6 +347,22 @@ def sync_proxmox(server, config):
 
 
 # -------------------- Синхронизация SSH Quota --------------------
+
+def _load_ssh_private_key(secret_str):
+    """Пробует загрузить приватный ключ SSH любого поддерживаемого формата (RSA, Ed25519, ECDSA, DSS)."""
+    key_classes = []
+    for attr in ('RSAKey', 'Ed25519Key', 'ECDSAKey', 'DSSKey'):
+        cls = getattr(paramiko, attr, None)
+        if cls:
+            key_classes.append(cls)
+    last_err = None
+    for cls in key_classes:
+        try:
+            return cls.from_private_key(io.StringIO(secret_str))
+        except Exception as e:
+            last_err = e
+    raise last_err or ValueError("Неподдерживаемый формат приватного SSH-ключа")
+
 
 def parse_repquota_output(output_text):
     """
@@ -368,16 +402,16 @@ def sync_ssh_quota(server, config):
         port = int(config.extra_param or 22)
 
         if secret.strip().startswith("-----BEGIN"):
-            key_file = io.StringIO(secret)
-            pkey = paramiko.RSAKey.from_private_key(key_file)
+            pkey = _load_ssh_private_key(secret)
             ssh.connect(ip, port=port, username=username, pkey=pkey, timeout=15)
         else:
             ssh.connect(ip, port=port, username=username, password=secret, timeout=15)
 
-        # 1. Автоматически определяем физический объем диска через df
+        # 1. Автоматически определяем физический объем диска через df (с защитой от инъекций)
         try:
-            path = server.backup_path or '/'
-            stdin, stdout, stderr = ssh.exec_command(f"df -k -P {path}")
+            path = (server.backup_path or '/').strip() or '/'
+            safe_path = shlex.quote(path)
+            stdin, stdout, stderr = ssh.exec_command(f"df -k -P {safe_path}")
             df_output = stdout.read().decode('utf-8', errors='ignore').strip().split('\n')
             if len(df_output) >= 2:
                 parts = df_output[1].split()

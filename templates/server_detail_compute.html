@@ -23,8 +23,16 @@
         </p>
     </div>
     
-    {% if server.type == 'manual' and current_user.role == 'admin' %}
-    <div>
+    <div style="display: flex; gap: 12px;">
+        {% if server.type in ['proxmox', 'proxmox_node'] and current_user.role in ['admin', 'financier'] %}
+        <button class="btn btn-primary" onclick="syncServer({{ server.id }}, this)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Синхронизировать
+        </button>
+        {% endif %}
+        {% if server.type == 'manual' and current_user.role == 'admin' %}
         <button class="btn btn-primary" onclick="openAddVmModal()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -32,8 +40,8 @@
             </svg>
             Добавить ВМ
         </button>
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 
 <!-- Resource Capacity Overview -->
@@ -67,7 +75,7 @@
 <!-- VM Table -->
 <div class="page-header" style="margin-bottom: 20px;">
     <h2 style="font-family: var(--font-title); font-size: 20px; font-weight: 600;">Виртуальные машины (выделенные по конфигурации ресурсы)</h2>
-    {% if server.type == 'proxmox' %}
+    {% if server.type in ['proxmox', 'proxmox_node'] %}
         <span style="font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-red);">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -84,7 +92,7 @@
     <table class="custom-table">
         <thead>
             <tr>
-                {% if server.type == 'proxmox' %}
+                {% if server.type in ['proxmox', 'proxmox_node'] %}
                 <th>VMID</th>
                 {% endif %}
                 <th>Название ВМ</th>
@@ -102,7 +110,7 @@
         <tbody>
             {% for vm in vms %}
             <tr>
-                {% if server.type == 'proxmox' %}
+                {% if server.type in ['proxmox', 'proxmox_node'] %}
                 <td style="font-family: monospace; color: var(--text-secondary);">{{ vm.vmid or '—' }}</td>
                 {% endif %}
                 <td style="font-weight: 600;">{{ vm.name }}</td>
@@ -125,12 +133,12 @@
                 {% if current_user.role in ['admin', 'financier'] %}
                 <td style="text-align: right; white-space: nowrap;">
                     <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                        <button class="btn btn-secondary btn-sm" onclick="openEditVmModal({{ vm.id }}, '{{ vm.name }}', {{ vm.cpu }}, {{ vm.ram }}, {{ vm.ssd }}, {{ vm.hdd }}, '{{ vm.status }}', '{{ server.type }}', '{{ vm.comment or '' }}')" title="Редактировать" style="padding: 6px; display: flex; align-items: center; justify-content: center;">
+                        <button class="btn btn-secondary btn-sm" onclick='openEditVmModal({{ vm.id }}, {{ vm.name | tojson }}, {{ vm.cpu }}, {{ vm.ram }}, {{ vm.ssd }}, {{ vm.hdd }}, {{ vm.status | tojson }}, {{ server.type | tojson }}, {{ (vm.comment or "") | tojson }})' title="Редактировать" style="padding: 6px; display: flex; align-items: center; justify-content: center;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </button>
                         
                         {% if server.type == 'manual' and current_user.role == 'admin' %}
-                         <form action="{{ url_for('delete_vm', vm_id=vm.id) }}" method="POST" style="display: inline-block; margin: 0;" onsubmit="event.preventDefault(); showConfirmDeleteModal(this, 'Удалить виртуальную машину «{{ vm.name }}»?');">
+                         <form action="{{ url_for('delete_vm', vm_id=vm.id) }}" method="POST" style="display: inline-block; margin: 0;" onsubmit='event.preventDefault(); showConfirmDeleteModal(this, {{ ("Удалить виртуальную машину «" ~ vm.name ~ "»?") | tojson }});'>
                              <button type="submit" class="btn btn-danger btn-sm" title="Удалить" style="padding: 6px; display: flex; align-items: center; justify-content: center;">
                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                              </button>
@@ -192,7 +200,7 @@
                 </div>
                 <div class="form-group" style="margin-top: 14px;">
                     <label for="vm_comment">Комментарий (Клиент / Проект)</label>
-                    <input type="text" id="vm_comment" name="comment" class="form-control" placeholder="Например, Масло LLC">
+                    <input type="text" id="vm_comment" name="comment" list="clients-datalist" class="form-control" placeholder="Например, Масло LLC">
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('add-vm-modal')">Отмена</button>
@@ -247,7 +255,7 @@
                 </div>
                 <div class="form-group" style="margin-top: 14px;">
                     <label for="edit_vm_comment">Комментарий (Клиент / Проект)</label>
-                    <input type="text" id="edit_vm_comment" name="comment" class="form-control" placeholder="Например, Масло LLC">
+                    <input type="text" id="edit_vm_comment" name="comment" list="clients-datalist" class="form-control" placeholder="Например, Масло LLC">
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('edit-vm-modal')">Отмена</button>

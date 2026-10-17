@@ -33,12 +33,24 @@
         <div class="sidebar-controls" style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px;">
             {% if current_user %}
             <div style="padding: 12px; background: rgba(255,255,255,0.03); border-radius: 10px; border: 1px solid var(--border-color);">
-                <div style="font-weight: 600; color: #ffffff; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                    <span style="color: var(--accent-blue);">👤</span> {{ current_user.username }}
+                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; display: flex; align-items: center; gap: 6px;" title="{{ current_user.username }}">
+                    <span style="color: var(--accent-blue);">👤</span> {{ current_user.display_name or current_user.username }}
                 </div>
-                <div style="font-size: 10px; text-transform: uppercase; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-                    <span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">{{ 'Админ' if current_user.role == 'admin' else 'Финансист' if current_user.role == 'financier' else 'Пользователь' }}</span>
+                {% if current_user.display_name and current_user.display_name != current_user.username %}
+                <div style="font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;">
+                    {{ current_user.username }}
+                </div>
+                {% endif %}
+                <div style="font-size: 10px; text-transform: uppercase; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 4px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">{{ 'Админ' if current_user.role == 'admin' else 'Финансист' if current_user.role == 'financier' else 'Пользователь' }}</span>
+                        {% if current_user.auth_source == 'ldap' %}
+                        <span style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); padding: 2px 5px; border-radius: 4px; font-weight: 700;">AD</span>
+                        {% endif %}
+                    </div>
+                    {% if current_user.auth_source != 'ldap' %}
                     <a href="{{ url_for('change_password') }}" style="color: var(--accent-blue); text-decoration: none; font-weight: 600;" title="Сменить пароль">Сменить пароль</a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -152,7 +164,7 @@
         </nav>
         
         <div class="sidebar-footer">
-            <p>SRV-Control v2.0</p>
+            <p>SRV-Control v2.1</p>
             <p style="font-size: 10px; margin-top: 4px;">IT Support Group Style</p>
         </div>
     </aside>
@@ -161,6 +173,13 @@
     <main class="main-content">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Глобальный список известных компаний/клиентов для автодополнения комментариев -->
+    <datalist id="clients-datalist">
+        {% for client_name in known_clients %}
+        <option value="{{ client_name }}">
+        {% endfor %}
+    </datalist>
 
     <!-- Toast Container для всплывающих уведомлений -->
     <div id="toast-container"></div>
@@ -191,7 +210,7 @@
             <script>
                 document.addEventListener('DOMContentLoaded', () => {
                     {% for category, message in messages %}
-                        showToast("{{ message }}", "{{ 'success' if category == 'success' else 'error' if category in ['danger', 'error'] else 'info' }}");
+                        showToast({{ message | tojson }}, {{ ('success' if category == 'success' else 'error' if category in ['danger', 'error'] else 'info') | tojson }});
                     {% endfor %}
                 });
             </script>

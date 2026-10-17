@@ -45,13 +45,27 @@ function showToast(message, type = 'info') {
     if (type === 'error' || type === 'danger') icon = '❌';
     if (type === 'warning') icon = '⚠️';
     
-    toast.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span>${icon}</span>
-            <span style="font-size: 13px; font-weight: 500;">${message}</span>
-        </div>
-        <button class="toast-close" onclick="this.parentElement.remove()" style="margin-left: 10px;">&times;</button>
-    `;
+    const contentDiv = document.createElement('div');
+    contentDiv.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+    
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = icon;
+    
+    const msgSpan = document.createElement('span');
+    msgSpan.style.cssText = 'font-size: 13px; font-weight: 500;';
+    msgSpan.textContent = message;
+    
+    contentDiv.appendChild(iconSpan);
+    contentDiv.appendChild(msgSpan);
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    closeBtn.style.marginLeft = '10px';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.onclick = function() { toast.remove(); };
+    
+    toast.appendChild(contentDiv);
+    toast.appendChild(closeBtn);
     
     container.appendChild(toast);
     
@@ -83,11 +97,11 @@ function openEditVmModal(vmId, name, cpu, ram, ssd, hdd, status, serverType = 'm
     
     const commentInput = document.getElementById('edit_vm_comment');
     if (commentInput) {
-        commentInput.value = comment;
+        commentInput.value = comment || '';
     }
     
-    // Управление предупреждением и доступностью полей для Proxmox ВМ
-    const isProxmox = serverType === 'proxmox';
+    // Управление предупреждением и доступностью полей для Proxmox ВМ (включая дочерние ноды proxmox_node)
+    const isProxmox = (serverType === 'proxmox' || serverType === 'proxmox_node');
     const warningNote = document.getElementById('proxmox-warning-note');
     if (warningNote) {
         warningNote.style.display = isProxmox ? 'block' : 'none';
@@ -122,8 +136,8 @@ function openEditQuotaModal(quotaId, companyName, systemName, systemType, alloca
     
     document.getElementById('edit-modal-title').innerText = companyName;
     document.getElementById('edit_company_name').value = companyName;
-    document.getElementById('edit_system_name').value = systemName;
-    document.getElementById('edit_system_type').value = systemType;
+    document.getElementById('edit_system_name').value = systemName || '';
+    document.getElementById('edit_system_type').value = systemType || 'user';
     document.getElementById('edit_allocated_quota').value = allocatedQuota;
     
     // Установка чекбокса скрытия
@@ -135,7 +149,7 @@ function openEditQuotaModal(quotaId, companyName, systemName, systemType, alloca
     
     const commentInput = document.getElementById('edit_comment');
     if (commentInput) {
-        commentInput.value = comment;
+        commentInput.value = comment || '';
     }
     
     const warningNote = document.getElementById('backup-warning-note');
@@ -176,8 +190,8 @@ function openEditServerModal(serverId, name, ipAddress, type, cpu, ram, ssd, hdd
     }
     
     if (type !== 'manual') {
-        document.getElementById('edit_username').value = username;
-        document.getElementById('edit_extra_param').value = extraParam;
+        document.getElementById('edit_username').value = username || '';
+        document.getElementById('edit_extra_param').value = extraParam || '';
         document.getElementById('edit_password').value = ''; // Пароль не показываем в целях безопасности
     }
     
@@ -221,7 +235,7 @@ function syncServer(serverId, button) {
         document.head.appendChild(style);
     }
 
-    fetch(`/api/sync/${serverId}`)
+    fetch(`/api/sync/${serverId}`, { method: 'POST' })
         .then(response => {
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -242,7 +256,7 @@ function syncServer(serverId, button) {
                 button.innerHTML = originalHtml;
             } else {
                 console.error("Non-JSON response from server:", result.rawText);
-                const snippet = result.rawText ? result.rawText.substring(0, 150).replace(/</g, "&lt;").replace(/>/g, "&gt;") : "Empty response";
+                const snippet = result.rawText ? result.rawText.substring(0, 150) : "Empty response";
                 showToast(`Сетевая ошибка: Получен некорректный ответ от прокси/сервера. Статус: ${result.status}. Ответ: ${snippet}...`, 'error');
                 button.disabled = false;
                 button.innerHTML = originalHtml;
@@ -294,7 +308,7 @@ async function syncAllServers() {
     setBtnText('Подготовка к синхронизации...');
 
     try {
-        const response = await fetch('/api/sync/servers');
+        const response = await fetch('/api/sync/servers', { method: 'POST' });
         if (!response.ok) {
             throw new Error(`Ошибка сервера при получении списка (${response.status})`);
         }
@@ -317,7 +331,7 @@ async function syncAllServers() {
             setBtnText(`Синхронизация (${i + 1}/${servers.length}): ${s.name}...`);
             
             try {
-                const sResp = await fetch(`/api/sync/${s.id}`);
+                const sResp = await fetch(`/api/sync/${s.id}`, { method: 'POST' });
                 const contentType = sResp.headers.get("content-type");
                 let sData = null;
                 if (contentType && contentType.indexOf("application/json") !== -1) {

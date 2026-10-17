@@ -7,25 +7,42 @@ from cryptography.fernet import Fernet
 
 db = SQLAlchemy()
 
-def _get_fernet_cipher():
-    key = os.environ.get('FERNET_KEY')
-    if not key:
-        secret = os.environ.get('SECRET_KEY', 'srv_control_secret_key_9988_secure_prod')
-        hash_bytes = hashlib.sha256(secret.encode()).digest()
-        key = base64.urlsafe_b64encode(hash_bytes)
+DEFAULT_LEGACY_SECRET = 'srv_control_secret_key_9988_secure_prod'
+
+def _get_fernet_cipher(secret_override=None):
+    if not secret_override:
+        key = os.environ.get('FERNET_KEY')
+        if key:
+            return Fernet(key.encode() if isinstance(key, str) else key)
+    secret = secret_override or os.environ.get('SECRET_KEY', DEFAULT_LEGACY_SECRET)
+    hash_bytes = hashlib.sha256(secret.encode()).digest()
+    key = base64.urlsafe_b64encode(hash_bytes)
     return Fernet(key)
+
+
+class LoginRateLimit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    rate_key = db.Column(db.String(120), nullable=False, index=True)
+    attempt_time = db.Column(db.Float, nullable=False, index=True)
 
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), default='user')  # 'admin' или 'user'
+    username = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False, default='!ldap_user')
+    role = db.Column(db.String(20), default='user')          # 'admin', 'financier' или 'user'
+    auth_source = db.Column(db.String(20), default='local')  # 'local' или 'ldap'
+    display_name = db.Column(db.String(120), nullable=True)
 
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        if password:
+            self.password_hash = generate_password_hash(password)
+        else:
+            self.password_hash = '!ldap_user'
 
     def check_password(self, password):
+        if not self.password_hash or self.password_hash == '!ldap_user':
+            return False
         return check_password_hash(self.password_hash, password)
 
 class Server(db.Model):
@@ -118,10 +135,13 @@ class SyncConfig(db.Model):
         f = _get_fernet_cipher()
         try:
             # Fernet-токены обычно начинаются с gAAAAA
-            # Если это не Fernet-токен, то decrypt выбросит ошибку, и мы вернем исходную строку
             return f.decrypt(self.password_or_token.encode()).decode()
         except Exception:
-            return self.password_or_token
+            try:
+                f_legacy = _get_fernet_cipher(DEFAULT_LEGACY_SECRET)
+                return f_legacy.decrypt(self.password_or_token.encode()).decode()
+            except Exception:
+                return self.password_or_token
 
 class ProxmoxStorage(db.Model):
     id = db.Column(db.Integer, primary_key=True)

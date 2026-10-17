@@ -3,21 +3,78 @@
 {% block title %}Ценообразование | SRV-Control{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header" style="flex-wrap: wrap; gap: 16px;">
     <div>
         <h1 class="page-title">Финансовый анализ и тарифы</h1>
         <p class="page-subtitle">Расчет стоимости аренды виртуальных машин и дискового пространства под бэкапы (в тенге)</p>
     </div>
-    <div class="search-container">
-        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        <input type="text" id="pricing-search-input" class="form-control search-input-premium" placeholder="Поиск по ВМ или компании..." onkeyup="filterPricing()">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <a href="{{ url_for('export_pricing_csv') }}" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; height: 40px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Экспорт в CSV
+        </a>
+        <div class="search-container">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="pricing-search-input" class="form-control search-input-premium" placeholder="Поиск по ВМ или компании..." onkeyup="filterPricing()">
+        </div>
     </div>
 </div>
 
-    <!-- Сворачиваемая панель тарифов сверху -->
+    <!-- Сворачиваемая панель базовых глобальных тарифов сверху -->
+    <div class="card" style="margin-bottom: 24px; padding: 18px 24px;">
+        <div onclick="toggleTariffs()" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; gap: 16px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <svg id="tariffs-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-secondary); transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <span style="font-family: var(--font-title); font-size: 15px; font-weight: 700; color: var(--text-primary);">Базовые глобальные тарифы по умолчанию</span>
+            </div>
+            <div id="tariffs-preview-bar" style="display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--text-secondary); transition: opacity 0.2s; flex-wrap: wrap;">
+                <span>CPU: <strong style="color: var(--text-primary);">{{ policy.cpu_price|int }} ₸</strong>/ядро</span>
+                <span>RAM: <strong style="color: var(--text-primary);">{{ policy.ram_price_gb|int }} ₸</strong>/ГБ</span>
+                <span>SSD: <strong style="color: var(--text-primary);">{{ policy.ssd_price_gb|int }} ₸</strong>/ГБ</span>
+                <span>HDD: <strong style="color: var(--text-primary);">{{ policy.hdd_price_gb|int }} ₸</strong>/ГБ</span>
+                <span>Бэкап: <strong style="color: var(--text-primary);">{{ policy.backup_price_gb|int }} ₸</strong>/ГБ</span>
+            </div>
+        </div>
+        <div id="tariffs-body-content" style="max-height: 0px; overflow: hidden; transition: max-height 0.25s ease;">
+            <form action="{{ url_for('pricing') }}" method="POST" style="padding-top: 20px; margin-top: 16px; border-top: 1px solid var(--border-color);">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; align-items: end;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="global_cpu_price">CPU (1 ядро, ₸/мес)</label>
+                        <input type="number" step="0.1" id="global_cpu_price" name="cpu_price" class="form-control" value="{{ policy.cpu_price }}" {% if current_user.role not in ['admin', 'financier'] %}disabled{% endif %} required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="global_ram_price">RAM (1 ГБ, ₸/мес)</label>
+                        <input type="number" step="0.1" id="global_ram_price" name="ram_price_gb" class="form-control" value="{{ policy.ram_price_gb }}" {% if current_user.role not in ['admin', 'financier'] %}disabled{% endif %} required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="global_ssd_price">SSD (1 ГБ, ₸/мес)</label>
+                        <input type="number" step="0.1" id="global_ssd_price" name="ssd_price_gb" class="form-control" value="{{ policy.ssd_price_gb }}" {% if current_user.role not in ['admin', 'financier'] %}disabled{% endif %} required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="global_hdd_price">HDD (1 ГБ, ₸/мес)</label>
+                        <input type="number" step="0.1" id="global_hdd_price" name="hdd_price_gb" class="form-control" value="{{ policy.hdd_price_gb }}" {% if current_user.role not in ['admin', 'financier'] %}disabled{% endif %} required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="global_backup_price">Бэкап (1 ГБ, ₸/мес)</label>
+                        <input type="number" step="0.1" id="global_backup_price" name="backup_price_gb" class="form-control" value="{{ policy.backup_price_gb }}" {% if current_user.role not in ['admin', 'financier'] %}disabled{% endif %} required>
+                    </div>
+                    {% if current_user.role in ['admin', 'financier'] %}
+                    <div>
+                        <button type="submit" class="btn btn-primary" style="width: 100%; height: 40px;">Сохранить базовые тарифы</button>
+                    </div>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Вкладки на всю ширину страницы -->
     <div class="tabs-container">
             <div class="tabs-header">
@@ -54,7 +111,7 @@
                                     {% endif %}
                                     
                                     {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                    <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ c_data.cluster.id }}, '{{ c_data.cluster.name }}', '{{ c_data.cluster.type }}', {{ c_data.cluster.cpu_price if c_data.cluster.cpu_price is not none else 'null' }}, {{ c_data.cluster.ram_price_gb if c_data.cluster.ram_price_gb is not none else 'null' }}, {{ c_data.cluster.ssd_price_gb if c_data.cluster.ssd_price_gb is not none else 'null' }}, {{ c_data.cluster.hdd_price_gb if c_data.cluster.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                                    <button class="btn btn-secondary btn-sm" onclick='openEditServerPricingModal({{ c_data.cluster.id }}, {{ c_data.cluster.name | tojson }}, {{ c_data.cluster.type | tojson }}, {{ c_data.cluster.cpu_price if c_data.cluster.cpu_price is not none else "null" }}, {{ c_data.cluster.ram_price_gb if c_data.cluster.ram_price_gb is not none else "null" }}, {{ c_data.cluster.ssd_price_gb if c_data.cluster.ssd_price_gb is not none else "null" }}, {{ c_data.cluster.hdd_price_gb if c_data.cluster.hdd_price_gb is not none else "null" }}, null)' style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                         Настроить тариф кластера
                                     </button>
@@ -84,7 +141,7 @@
                                                 {% endif %}
                                                 
                                                 {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                                <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s_data.server.id }}, '{{ s_data.server.name }}', '{{ s_data.server.type }}', {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else 'null' }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else 'null' }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else 'null' }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
+                                                <button class="btn btn-secondary btn-sm" onclick='openEditServerPricingModal({{ s_data.server.id }}, {{ s_data.server.name | tojson }}, {{ s_data.server.type | tojson }}, {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else "null" }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else "null" }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else "null" }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else "null" }}, null)' style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                                     Настроить
                                                 </button>
@@ -231,7 +288,7 @@
                                             {% endif %}
                                             
                                             {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                            <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s_data.server.id }}, '{{ s_data.server.name }}', '{{ s_data.server.type }}', {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else 'null' }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else 'null' }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else 'null' }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else 'null' }}, null)" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
+                                            <button class="btn btn-secondary btn-sm" onclick='openEditServerPricingModal({{ s_data.server.id }}, {{ s_data.server.name | tojson }}, {{ s_data.server.type | tojson }}, {{ s_data.server.cpu_price if s_data.server.cpu_price is not none else "null" }}, {{ s_data.server.ram_price_gb if s_data.server.ram_price_gb is not none else "null" }}, {{ s_data.server.ssd_price_gb if s_data.server.ssd_price_gb is not none else "null" }}, {{ s_data.server.hdd_price_gb if s_data.server.hdd_price_gb is not none else "null" }}, null)' style="white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11px; height: 26px; border-radius: 4px;">
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                                 Настроить
                                             </button>
@@ -383,7 +440,7 @@
                                     {% endif %}
                                     
                                     {% if current_user and current_user.role in ['admin', 'financier'] %}
-                                    <button class="btn btn-secondary btn-sm" onclick="openEditServerPricingModal({{ s.id }}, '{{ s.name }}', '{{ s.type }}', null, null, null, null, {{ s.backup_price_gb if s.backup_price_gb is not none else 'null' }})" style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                                    <button class="btn btn-secondary btn-sm" onclick='openEditServerPricingModal({{ s.id }}, {{ s.name | tojson }}, {{ s.type | tojson }}, null, null, null, null, {{ s.backup_price_gb if s.backup_price_gb is not none else "null" }})' style="white-space: nowrap; height: 30px; font-size: 11px; padding: 4px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.8;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                         Настроить
                                     </button>
@@ -418,6 +475,7 @@
                                                 {% if current_user and current_user.role in ['admin', 'financier'] %}
                                                 <form action="{{ url_for('update_manual_price') }}" method="POST" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0;" onsubmit="event.preventDefault(); submitManualPrice(this);">
                                                     <input type="hidden" name="item_type" value="quota_group">
+                                                    <input type="hidden" name="server_id" value="{{ s.id }}">
                                                     {% if item.is_group %}
                                                         <input type="hidden" name="client_name" value="{{ item.client_name }}">
                                                         <input type="hidden" name="item_id" value="0">
@@ -857,7 +915,7 @@ function recalculateTableTotals(tbody) {
 
 function recalculateAllVmsRevenue() {
     let totalRevenue = 0;
-    document.querySelectorAll('.cluster-group table tbody tr:last-child').forEach(r => {
+    document.querySelectorAll('#pricing-vms .cluster-group table tbody tr:last-child').forEach(r => {
         const td = r.cells[5];
         if (td) {
             const val = parseFloat(td.textContent.replace(/[^\d]/g, '')) || 0;

@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session, flash
-from models import db, User, Server, VirtualMachine, CompanyQuota, SyncConfig, ProxmoxStorage, PricingPolicy
+from werkzeug.middleware.proxy_fix import ProxyFix
+from models import db, User, LoginRateLimit, Server, VirtualMachine, CompanyQuota, SyncConfig, ProxmoxStorage, PricingPolicy
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime
 from functools import wraps
-from collections import defaultdict, deque
 import os
 import time
 import secrets
@@ -14,7 +14,16 @@ except ImportError:
     pass
 from apscheduler.schedulers.background import BackgroundScheduler
 
+# Попытка импорта ldap3 для авторизации через Active Directory / LDAP
+try:
+    from ldap3 import Server as LdapServer, Connection as LdapConnection, ALL, SUBTREE
+    from ldap3.utils.conv import escape_filter_chars
+    LDAP_AVAILABLE = True
+except ImportError:
+    LDAP_AVAILABLE = False
+
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI', os.environ.get('DATABASE_URL', 'sqlite:///srv_control.db'))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -36,20 +45,47 @@ def _load_or_create_secret(filename, nbytes=32):
     return value
 
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or _load_or_create_secret('.secret_key')
+os.environ['SECRET_KEY'] = app.config['SECRET_KEY']
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes'),
 )
 
 # Токен для cron-запросов к API синхронизации. Проверка по remote_addr убрана:
 # за reverse-proxy все запросы приходят с 127.0.0.1, что открывало API всем.
 SYNC_API_TOKEN = os.environ.get('SYNC_API_TOKEN') or _load_or_create_secret('sync_token')
 
+# -------------------- Настройки Active Directory / LDAP (.env) --------------------
+def _env_bool(name, fallback_name=None, default=False):
+    val = os.environ.get(name)
+    if val is None and fallback_name:
+        val = os.environ.get(fallback_name)
+    if val is None:
+        return default
+    return val.strip().lower() in ('true', '1', 'yes')
+
+LDAP_CONFIG = {
+    'enabled': _env_bool('LDAP_ENABLED', 'AD_ENABLED', False),
+    'server': (os.environ.get('LDAP_SERVER') or os.environ.get('AD_SERVER') or '').strip(),
+    'port': int(os.environ.get('LDAP_PORT') or os.environ.get('AD_PORT') or 389),
+    'use_ssl': _env_bool('LDAP_USE_SSL', 'AD_USE_SSL', False),
+    'domain': (os.environ.get('LDAP_DOMAIN') or os.environ.get('AD_DOMAIN') or '').strip(),
+    'base_dn': (os.environ.get('LDAP_BASE_DN') or os.environ.get('AD_BASE_DN') or '').strip(),
+    'bind_user': (os.environ.get('LDAP_BIND_USER') or os.environ.get('AD_BIND_USER') or '').strip(),
+    'bind_password': os.environ.get('LDAP_BIND_PASSWORD') or os.environ.get('AD_BIND_PASSWORD') or '',
+    'required_group': (os.environ.get('LDAP_REQUIRED_GROUP') or os.environ.get('AD_REQUIRED_GROUP') or '').strip(),
+    'admin_group': (os.environ.get('LDAP_ADMIN_GROUP') or os.environ.get('AD_ADMIN_GROUP') or '').strip(),
+    'financier_group': (os.environ.get('LDAP_FINANCIER_GROUP') or os.environ.get('AD_FINANCIER_GROUP') or '').strip(),
+    'admin_users': [u.strip().lower() for u in (os.environ.get('LDAP_ADMIN_USERS') or os.environ.get('AD_ADMIN_USERS') or '').split(',') if u.strip()],
+    'nested_groups': _env_bool('LDAP_NESTED_GROUPS', 'AD_NESTED_GROUPS', True),
+}
+
 # Инициализация базы данных
 db.init_app(app)
 
 # Настройка SQLite для повышения производительности и устранения блокировок (WAL-режим)
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.engine import Engine
 import sqlite3
 
@@ -65,22 +101,265 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 # Регистрация стандартных функций в шаблонах Jinja2
 app.jinja_env.globals.update(min=min, max=max, round=round)
 
-# -------------------- Декораторы безопасности --------------------
+# -------------------- Безопасность и Rate Limiting --------------------
 
-# Простой in-memory ограничитель попыток входа (на процесс)
-_login_attempts = defaultdict(deque)
 LOGIN_MAX_ATTEMPTS = 10
 LOGIN_WINDOW_SECONDS = 300
 
 def login_rate_limited(key):
     now = time.time()
-    attempts = _login_attempts[key]
-    while attempts and attempts[0] < now - LOGIN_WINDOW_SECONDS:
-        attempts.popleft()
-    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+    cutoff = now - LOGIN_WINDOW_SECONDS
+    try:
+        LoginRateLimit.query.filter(LoginRateLimit.attempt_time < cutoff).delete()
+        count = LoginRateLimit.query.filter(
+            LoginRateLimit.rate_key == key,
+            LoginRateLimit.attempt_time >= cutoff
+        ).count()
+        db.session.commit()
+        return count >= LOGIN_MAX_ATTEMPTS
+    except Exception as e:
+        db.session.rollback()
+        print(f"Rate limit check error: {e}")
+        return False
 
 def register_failed_login(key):
-    _login_attempts[key].append(time.time())
+    try:
+        db.session.add(LoginRateLimit(rate_key=key, attempt_time=time.time()))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"Register failed login error: {e}")
+
+# -------------------- Аутентификация через Active Directory / LDAP --------------------
+
+def _clean_ldap_host(server_str):
+    if not server_str:
+        return "", None, None
+    cleaned = server_str.strip().strip('"').strip("'")
+    use_ssl = None
+    if cleaned.lower().startswith("ldaps://"):
+        use_ssl = True
+        cleaned = cleaned[8:]
+    elif cleaned.lower().startswith("ldap://"):
+        use_ssl = False
+        cleaned = cleaned[7:]
+    cleaned = cleaned.rstrip("/").strip()
+    port = None
+    if ":" in cleaned:
+        host_part, port_part = cleaned.rsplit(":", 1)
+        if port_part.isdigit():
+            cleaned = host_part
+            port = int(port_part)
+    return cleaned, port, use_ssl
+
+def authenticate_ldap(identifier, password):
+    """
+    Проверяет учетные данные пользователя (по корпоративной почте mail, UPN или логину sAMAccountName)
+    в домене Active Directory / LDAP.
+    Возвращает: (success: bool, resolved_username: str, ad_role: str|None, display_name: str, error_msg: str|None)
+    """
+    if not LDAP_CONFIG['enabled']:
+        return False, None, None, None, "Авторизация через Active Directory отключена"
+
+    if not LDAP_AVAILABLE:
+        return False, None, None, None, "Модуль ldap3 не установлен на сервере"
+
+    host, parsed_port, parsed_ssl = _clean_ldap_host(LDAP_CONFIG['server'])
+    port = parsed_port or LDAP_CONFIG['port']
+    use_ssl = parsed_ssl if parsed_ssl is not None else LDAP_CONFIG['use_ssl']
+    ldap_domain = LDAP_CONFIG['domain']
+    base_dn = LDAP_CONFIG['base_dn']
+    bind_user = LDAP_CONFIG['bind_user']
+    bind_password = LDAP_CONFIG['bind_password']
+    req_group = LDAP_CONFIG['required_group']
+    admin_group = LDAP_CONFIG['admin_group']
+    financier_group = LDAP_CONFIG['financier_group']
+
+    if not host or not base_dn:
+        return False, None, None, None, "Не настроены LDAP_SERVER или LDAP_BASE_DN в .env"
+
+    clean_id = identifier.strip()
+    clean_user = clean_id
+    if "@" in clean_user:
+        clean_user = clean_user.split("@")[0].strip()
+    elif "\\" in clean_user:
+        clean_user = clean_user.split("\\")[-1].strip()
+
+    domain_short = ldap_domain.split(".")[0].upper() if ldap_domain else ""
+
+    try:
+        server = LdapServer(host, port=port, use_ssl=use_ssl, get_info=ALL, connect_timeout=5)
+        user_entry = None
+        user_dn = None
+        user_conn = None
+
+        # Шаг 1: Поиск пользователя через сервисную учетную запись (Search-then-Bind)
+        if bind_user and bind_password:
+            bind_candidates = [bind_user]
+            if domain_short and "\\" not in bind_user and "@" not in bind_user:
+                bind_candidates.append(f"{domain_short}\\{bind_user}")
+            if ldap_domain and "@" not in bind_user and "\\" not in bind_user:
+                bind_candidates.append(f"{bind_user}@{ldap_domain}")
+
+            svc_conn = None
+            for b_cand in dict.fromkeys(bind_candidates):
+                try:
+                    tc = LdapConnection(server, user=b_cand, password=bind_password, auto_bind=True)
+                    if tc.bound:
+                        svc_conn = tc
+                        break
+                except Exception:
+                    continue
+
+            if svc_conn and svc_conn.bound:
+                safe_id = escape_filter_chars(clean_id)
+                safe_user = escape_filter_chars(clean_user)
+                upn_cand = escape_filter_chars(f"{clean_user}@{ldap_domain}") if ldap_domain else safe_id
+                search_filter = (
+                    f"(&(objectCategory=person)(objectClass=user)"
+                    f"(|(mail={safe_id})(userPrincipalName={safe_id})(userPrincipalName={upn_cand})"
+                    f"(sAMAccountName={safe_id})(sAMAccountName={safe_user})))"
+                )
+                svc_conn.search(
+                    search_base=base_dn,
+                    search_filter=search_filter,
+                    search_scope=SUBTREE,
+                    attributes=['distinguishedName', 'sAMAccountName', 'userPrincipalName', 'displayName', 'mail', 'memberOf']
+                )
+                if not svc_conn.entries:
+                    svc_conn.unbind()
+                    return False, None, None, None, f"Пользователь «{clean_id}» не найден в Active Directory"
+
+                user_entry = svc_conn.entries[0]
+                user_dn = str(user_entry.entry_dn) if hasattr(user_entry, 'entry_dn') else str(user_entry.distinguishedName)
+                user_upn = str(user_entry.userPrincipalName) if hasattr(user_entry, 'userPrincipalName') and user_entry.userPrincipalName else None
+                user_sam = str(user_entry.sAMAccountName) if hasattr(user_entry, 'sAMAccountName') and user_entry.sAMAccountName else clean_user
+                svc_conn.unbind()
+
+                # Шаг 2: Проверяем пароль найденного пользователя
+                verify_candidates = [user_dn, user_upn]
+                if domain_short:
+                    verify_candidates.append(f"{domain_short}\\{user_sam}")
+                if ldap_domain:
+                    verify_candidates.append(f"{user_sam}@{ldap_domain}")
+                verify_candidates.append(user_sam)
+
+                for cand in dict.fromkeys([c for c in verify_candidates if c]):
+                    try:
+                        tc = LdapConnection(server, user=cand, password=password, auto_bind=True)
+                        if tc.bound:
+                            user_conn = tc
+                            break
+                    except Exception:
+                        continue
+
+                if not user_conn or not user_conn.bound:
+                    return False, None, None, None, "Неверный пароль доменной учетной записи Active Directory"
+                user_conn.unbind()
+
+        # Шаг 2 (Fallback): Прямой Bind, если сервисная учетная запись не задана
+        if not user_entry:
+            direct_candidates = [clean_id]
+            if domain_short:
+                direct_candidates.append(f"{domain_short}\\{clean_user}")
+            if ldap_domain:
+                direct_candidates.append(f"{clean_user}@{ldap_domain}")
+            direct_candidates.append(clean_user)
+
+            for cand in dict.fromkeys([c for c in direct_candidates if c]):
+                try:
+                    tc = LdapConnection(server, user=cand, password=password, auto_bind=True)
+                    if tc.bound:
+                        user_conn = tc
+                        break
+                except Exception:
+                    continue
+
+            if not user_conn or not user_conn.bound:
+                return False, None, None, None, "Неверный корпоративный email/логин или пароль Active Directory"
+
+            # Читаем атрибуты пользователя под его собственным подключением
+            safe_id = escape_filter_chars(clean_id)
+            safe_user = escape_filter_chars(clean_user)
+            upn_cand = escape_filter_chars(f"{clean_user}@{ldap_domain}") if ldap_domain else safe_id
+            search_filter = (
+                f"(&(objectCategory=person)(objectClass=user)"
+                f"(|(mail={safe_id})(userPrincipalName={safe_id})(userPrincipalName={upn_cand})"
+                f"(sAMAccountName={safe_id})(sAMAccountName={safe_user})))"
+            )
+            user_conn.search(
+                search_base=base_dn,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=['distinguishedName', 'sAMAccountName', 'userPrincipalName', 'displayName', 'mail', 'memberOf']
+            )
+            if user_conn.entries:
+                user_entry = user_conn.entries[0]
+                user_dn = str(user_entry.entry_dn) if hasattr(user_entry, 'entry_dn') else str(user_entry.distinguishedName)
+            user_conn.unbind()
+
+        # Определяем почту / логин и отображаемое имя
+        display_name = clean_user
+        resolved_email = clean_id.lower() if "@" in clean_id else (f"{clean_user}@{ldap_domain}".lower() if ldap_domain else clean_user.lower())
+        user_groups = []
+
+        if user_entry:
+            if hasattr(user_entry, 'displayName') and user_entry.displayName:
+                display_name = str(user_entry.displayName)
+            if hasattr(user_entry, 'mail') and user_entry.mail:
+                resolved_email = str(user_entry.mail).strip().lower()
+            elif hasattr(user_entry, 'userPrincipalName') and user_entry.userPrincipalName and "@" in str(user_entry.userPrincipalName):
+                if "@" not in clean_id:
+                    resolved_email = str(user_entry.userPrincipalName).strip().lower()
+            if hasattr(user_entry, 'memberOf') and user_entry.memberOf:
+                user_groups = [str(g).lower() for g in user_entry.memberOf]
+
+        # Шаг 3: Проверка членства в группах AD (включая вложенные группы)
+        def is_member_of_group(target_group):
+            if not target_group:
+                return False
+            target_lower = target_group.lower()
+            for g in user_groups:
+                if target_lower == g or f"cn={target_lower}," in g:
+                    return True
+            if LDAP_CONFIG['nested_groups'] and user_dn and bind_user and bind_password:
+                try:
+                    s_conn = LdapConnection(server, user=bind_user, password=bind_password, auto_bind=True)
+                    safe_grp = escape_filter_chars(target_group)
+                    grp_filter = f"(&(objectCategory=group)(|(cn={safe_grp})(distinguishedName={safe_grp})))"
+                    s_conn.search(search_base=base_dn, search_filter=grp_filter, search_scope=SUBTREE, attributes=['distinguishedName'])
+                    if s_conn.entries:
+                        group_dn = escape_filter_chars(str(s_conn.entries[0].entry_dn if hasattr(s_conn.entries[0], 'entry_dn') else s_conn.entries[0].distinguishedName))
+                        safe_user_dn = escape_filter_chars(user_dn)
+                        nested_filter = f"(&(objectCategory=person)(objectClass=user)(distinguishedName={safe_user_dn})(memberOf:1.2.840.113556.1.4.1941:={group_dn}))"
+                        s_conn.search(search_base=base_dn, search_filter=nested_filter, search_scope=SUBTREE, attributes=['distinguishedName'])
+                        is_member = len(s_conn.entries) > 0
+                        s_conn.unbind()
+                        return is_member
+                    s_conn.unbind()
+                except Exception as e:
+                    print(f"[LDAP] Ошибка проверки вложенных групп: {e}")
+            return False
+
+        if req_group and not is_member_of_group(req_group):
+            return False, None, None, None, f"Доступ запрещен: учетная запись не состоит в группе «{req_group}»"
+
+        # Шаг 4: Определение роли из AD (если применимо)
+        ad_role = None
+        admin_users_list = LDAP_CONFIG['admin_users']
+        if (clean_user.lower() in admin_users_list or
+                resolved_email.lower() in admin_users_list or
+                clean_id.lower() in admin_users_list or
+                (admin_group and is_member_of_group(admin_group))):
+            ad_role = 'admin'
+        elif financier_group and is_member_of_group(financier_group):
+            ad_role = 'financier'
+
+        return True, resolved_email, ad_role, display_name, None
+
+    except Exception as e:
+        print(f"[LDAP ERROR] Ошибка соединения с контроллером домена: {e}")
+        return False, None, None, None, f"Ошибка соединения с контроллером домена AD: {e}"
 
 def sync_access_allowed():
     token = request.headers.get('X-Sync-Token') or request.args.get('token')
@@ -106,73 +385,72 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def get_known_clients():
+    """Собирает список уникальных имен клиентов из комментариев ВМ и квот для автодополнения (<datalist>)."""
+    try:
+        clients = set()
+        for (c,) in db.session.query(VirtualMachine.comment).filter(VirtualMachine.deleted == False, VirtualMachine.comment.isnot(None)).distinct():
+            if c and c.strip():
+                clients.add(c.strip())
+        for (c, comp) in db.session.query(CompanyQuota.comment, CompanyQuota.company_name).filter(CompanyQuota.is_hidden == False).all():
+            if c and c.strip():
+                clients.add(c.strip())
+            elif comp and comp.strip():
+                clients.add(comp.strip())
+        return sorted(clients, key=lambda s: s.lower())
+    except Exception:
+        return []
+
 @app.context_processor
 def inject_user():
+    ctx = {
+        'current_user': None,
+        'ldap_enabled': LDAP_CONFIG['enabled'],
+        'known_clients': []
+    }
     if 'user_id' in session:
-        return {
-            'current_user': {
-                'id': session.get('user_id'),
-                'username': session.get('username'),
-                'role': session.get('role')
-            }
+        ctx['current_user'] = {
+            'id': session.get('user_id'),
+            'username': session.get('username'),
+            'display_name': session.get('display_name') or session.get('username'),
+            'role': session.get('role'),
+            'auth_source': session.get('auth_source', 'local')
         }
-    return {'current_user': None}
+        ctx['known_clients'] = get_known_clients()
+    return ctx
 
 # -------------------- Инициализация и миграция БД --------------------
 
 def migrate_db():
     """
     Автоматическая миграция схемы БД SQLite на лету.
-    Добавляет новые колонки manual_price, comment и expense, если они отсутствуют, без удаления данных.
+    Проверяет наличие колонок через инспектор SQLAlchemy перед выполнением ALTER TABLE.
     """
+    migrations = [
+        ('virtual_machine', 'manual_price', 'FLOAT'),
+        ('virtual_machine', 'comment', 'VARCHAR(255)'),
+        ('server', 'expense', 'FLOAT'),
+        ('company_quota', 'manual_price', 'FLOAT'),
+        ('company_quota', 'comment', 'VARCHAR(255)'),
+        ('pricing_policy', 'sync_interval_hours', 'INTEGER DEFAULT 1'),
+        ('user', 'auth_source', "VARCHAR(20) DEFAULT 'local'"),
+        ('user', 'display_name', 'VARCHAR(120)'),
+    ]
     with app.app_context():
-        # Пытаемся добавить колонку manual_price в таблицу virtual_machine
-        try:
-            db.session.execute(db.text("ALTER TABLE virtual_machine ADD COLUMN manual_price FLOAT"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка manual_price в virtual_machine")
-        except Exception:
-            db.session.rollback()
-
-        # Пытаемся добавить колонку comment в таблицу virtual_machine
-        try:
-            db.session.execute(db.text("ALTER TABLE virtual_machine ADD COLUMN comment VARCHAR(255)"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка comment в virtual_machine")
-        except Exception:
-            db.session.rollback()
-
-        # Пытаемся добавить колонку expense в таблицу server
-        try:
-            db.session.execute(db.text("ALTER TABLE server ADD COLUMN expense FLOAT"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка expense в server")
-        except Exception:
-            db.session.rollback()
-
-        # Пытаемся добавить колонку manual_price в таблицу company_quota
-        try:
-            db.session.execute(db.text("ALTER TABLE company_quota ADD COLUMN manual_price FLOAT"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка manual_price в company_quota")
-        except Exception:
-            db.session.rollback()
-
-        # Пытаемся добавить колонку comment в таблицу company_quota
-        try:
-            db.session.execute(db.text("ALTER TABLE company_quota ADD COLUMN comment VARCHAR(255)"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка comment в company_quota")
-        except Exception:
-            db.session.rollback()
-
-        # Пытаемся добавить колонку sync_interval_hours в таблицу pricing_policy
-        try:
-            db.session.execute(db.text("ALTER TABLE pricing_policy ADD COLUMN sync_interval_hours INTEGER DEFAULT 1"))
-            db.session.commit()
-            print("Миграция: Добавлена колонка sync_interval_hours в pricing_policy")
-        except Exception:
-            db.session.rollback()
+        inspector = inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        for table_name, col_name, col_type in migrations:
+            if table_name not in existing_tables:
+                continue
+            existing_cols = {c['name'] for c in inspector.get_columns(table_name)}
+            if col_name not in existing_cols:
+                try:
+                    db.session.execute(db.text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
+                    db.session.commit()
+                    print(f"Миграция: Добавлена колонка {col_name} в {table_name}")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Ошибка миграции {table_name}.{col_name}: {e}")
 
 def init_db():
     db.create_all()
@@ -186,22 +464,69 @@ def login():
         return redirect(url_for('index'))
         
     if request.method == 'POST':
-        if login_rate_limited(request.remote_addr):
-            flash("Слишком много неудачных попыток входа. Попробуйте позже.")
+        rate_key = request.remote_addr or 'unknown'
+        if login_rate_limited(rate_key):
+            flash("Слишком много неудачных попыток входа. Попробуйте через 5 минут.")
             return render_template('login.html')
 
-        username = request.form['username'].strip()
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
 
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['role'] = user.role
+        if not username or not password:
+            flash("Введите логин/почту и пароль!")
+            return render_template('login.html')
+
+        # 1. Проверяем локальную учетную запись (например, локальный admin)
+        local_user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
+        if local_user and local_user.auth_source != 'ldap' and local_user.check_password(password):
+            session['user_id'] = local_user.id
+            session['username'] = local_user.username
+            session['display_name'] = local_user.display_name or local_user.username
+            session['role'] = local_user.role
+            session['auth_source'] = 'local'
             return redirect(url_for('index'))
-        else:
-            register_failed_login(request.remote_addr)
-            flash("Неверное имя пользователя или пароль!")
+
+        # 2. Если включена авторизация через Active Directory / LDAP — проверяем по почте или логину в домене
+        if LDAP_CONFIG['enabled']:
+            ldap_ok, resolved_email, ad_role, display_name, ldap_err = authenticate_ldap(username, password)
+            if ldap_ok:
+                # Ищем пользователя в БД по почте или логину
+                short_login = username.split('@')[0].strip().lower()
+                db_user = User.query.filter(
+                    db.func.lower(User.username).in_([resolved_email.lower(), username.lower(), short_login])
+                ).first()
+
+                if not db_user:
+                    db_user = User(
+                        username=resolved_email.lower(),
+                        role=ad_role or 'user',
+                        auth_source='ldap',
+                        display_name=display_name
+                    )
+                    db_user.set_password(None)
+                    db.session.add(db_user)
+                else:
+                    db_user.username = resolved_email.lower()
+                    db_user.auth_source = 'ldap'
+                    db_user.display_name = display_name
+                    # Если роль явно определена группами AD / списком админов — обновляем, иначе сохраняем назначенную в панели роль
+                    if ad_role:
+                        db_user.role = ad_role
+                db.session.commit()
+
+                session['user_id'] = db_user.id
+                session['username'] = db_user.username
+                session['display_name'] = db_user.display_name or db_user.username
+                session['role'] = db_user.role
+                session['auth_source'] = 'ldap'
+                return redirect(url_for('index'))
+            else:
+                register_failed_login(rate_key)
+                flash(ldap_err or "Неверный корпоративный email/логин или пароль!")
+                return render_template('login.html')
+
+        register_failed_login(rate_key)
+        flash("Неверное имя пользователя или пароль!")
             
     return render_template('login.html')
 
@@ -213,11 +538,15 @@ def logout():
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
 def change_password():
+    if session.get('auth_source') == 'ldap':
+        flash("Вы вошли через Active Directory. Смена пароля выполняется в домене Windows.", "info")
+        return redirect(url_for('index'))
+
     if request.method == 'POST':
         current_password = request.form['current_password']
         new_password = request.form['new_password']
         
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
         if user and user.check_password(current_password):
             user.set_password(new_password)
             db.session.commit()
@@ -233,31 +562,43 @@ def change_password():
 @app.route('/admin/users')
 @admin_required
 def users_admin():
-    users = User.query.all()
+    users = User.query.order_by(User.id.asc()).all()
     return render_template('users.html', users=users)
 
 @app.route('/admin/users/add', methods=['POST'])
 @admin_required
 def add_user():
-    username = request.form['username'].strip()
-    password = request.form['password']
-    role = request.form['role']
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    role = request.form.get('role', 'user')
+    auth_source = request.form.get('auth_source', 'local')
+
+    if role not in ('admin', 'financier', 'user'):
+        role = 'user'
     
-    if not username or not password:
-        flash("Заполните все поля!", "danger")
+    if not username:
+        flash("Укажите логин или корпоративную почту пользователя!", "danger")
+        return redirect(url_for('users_admin'))
+
+    if auth_source == 'local' and not password:
+        flash("Для локального пользователя необходимо указать пароль!", "danger")
         return redirect(url_for('users_admin'))
         
-    existing_user = User.query.filter_by(username=username).first()
+    existing_user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
     if existing_user:
-        flash("Пользователь с таким логином уже существует!", "danger")
+        flash("Пользователь с таким логином или почтой уже существует!", "danger")
         return redirect(url_for('users_admin'))
         
-    new_user = User(username=username, role=role)
-    new_user.set_password(password)
+    new_user = User(
+        username=username.lower() if auth_source == 'ldap' else username,
+        role=role,
+        auth_source='ldap' if auth_source == 'ldap' else 'local'
+    )
+    new_user.set_password(password if auth_source == 'local' else None)
     db.session.add(new_user)
     db.session.commit()
     
-    flash(f"Пользователь {username} успешно создан!", "success")
+    flash(f"Пользователь {new_user.username} успешно создан!", "success")
     return redirect(url_for('users_admin'))
 
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
@@ -267,12 +608,15 @@ def edit_user(user_id):
     
     # Не даем админу менять собственную роль (чтобы случайно не лишить себя прав)
     if user.username != session.get('username'):
-        user.role = request.form.get('role', user.role)
+        new_role = request.form.get('role', user.role)
+        if new_role in ('admin', 'financier', 'user'):
+            user.role = new_role
         
-    # Если введен новый пароль — обновляем его
+    # Если введен новый пароль для локального пользователя — обновляем его
     new_password = request.form.get('password')
     if new_password and new_password.strip():
-        user.set_password(new_password)
+        user.auth_source = 'local'
+        user.set_password(new_password.strip())
         
     db.session.commit()
     flash(f"Данные пользователя {user.username} обновлены!", "success")
@@ -500,11 +844,17 @@ def edit_server(server_id):
     server.name = request.form['name']
     server.ip_address = request.form['ip_address']
     
-    server.cpu_price = parse_float_or_none(request.form.get('cpu_price'))
-    server.ram_price_gb = parse_float_or_none(request.form.get('ram_price_gb'))
-    server.ssd_price_gb = parse_float_or_none(request.form.get('ssd_price_gb'))
-    server.hdd_price_gb = parse_float_or_none(request.form.get('hdd_price_gb'))
-    server.backup_price_gb = parse_float_or_none(request.form.get('backup_price_gb'))
+    # Обновляем тарифы только если поля явно переданы в форме, чтобы не затирать индивидуальные тарифы хоста
+    if 'cpu_price' in request.form:
+        server.cpu_price = parse_float_or_none(request.form.get('cpu_price'))
+    if 'ram_price_gb' in request.form:
+        server.ram_price_gb = parse_float_or_none(request.form.get('ram_price_gb'))
+    if 'ssd_price_gb' in request.form:
+        server.ssd_price_gb = parse_float_or_none(request.form.get('ssd_price_gb'))
+    if 'hdd_price_gb' in request.form:
+        server.hdd_price_gb = parse_float_or_none(request.form.get('hdd_price_gb'))
+    if 'backup_price_gb' in request.form:
+        server.backup_price_gb = parse_float_or_none(request.form.get('backup_price_gb'))
 
     if server.type in ['manual', 'backup_ssh']:
         server.cpu = int(request.form.get('cpu', 0) or 0)
@@ -658,11 +1008,11 @@ def add_quota(server_id):
 def edit_quota(quota_id):
     if session.get('role') not in ['admin', 'financier']:
         flash("У вас нет прав для этого действия", "danger")
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('index'))
         
     quota = CompanyQuota.query.get_or_404(quota_id)
     
-    # Комментарий могут менять и админ, и финансист
+    # Комментарий могут менять и админ, и финансисту
     quota.comment = request.form.get('comment', '').strip() or None
     
     # Остальные поля - только админ
@@ -690,24 +1040,7 @@ def delete_quota(quota_id):
 
 # -------------------- Ценообразование и Ручные ценники --------------------
 
-@app.route('/pricing', methods=['GET', 'POST'])
-@login_required
-def pricing():
-    policy = PricingPolicy.query.first()
-    
-    if request.method == 'POST':
-        # Изменять глобальные тарифы могут админы и финансисты
-        if session.get('role') not in ['admin', 'financier']:
-            return "Доступ запрещен. Требуются права Администратора или Финансиста.", 403
-            
-        policy.cpu_price = float(request.form['cpu_price'])
-        policy.ram_price_gb = float(request.form['ram_price_gb'])
-        policy.ssd_price_gb = float(request.form['ssd_price_gb'])
-        policy.hdd_price_gb = float(request.form['hdd_price_gb'])
-        policy.backup_price_gb = float(request.form['backup_price_gb'])
-        db.session.commit()
-        return redirect(url_for('pricing'))
-
+def _build_pricing_data(policy):
     vms = VirtualMachine.query.options(joinedload(VirtualMachine.server)).filter_by(deleted=False).all()
 
     # Сначала группируем ВМ по серверам (хостам)
@@ -994,6 +1327,30 @@ def pricing():
             'backup_price_gb': backup_pr
         })
 
+    return clusters_data, standalone_hosts, backup_servers_data, total_vms_revenue, total_quotas_revenue
+
+
+@app.route('/pricing', methods=['GET', 'POST'])
+@login_required
+def pricing():
+    policy = PricingPolicy.query.first()
+    
+    if request.method == 'POST':
+        # Изменять глобальные тарифы могут админы и финансисты
+        if session.get('role') not in ['admin', 'financier']:
+            return "Доступ запрещен. Требуются права Администратора или Финансиста.", 403
+            
+        policy.cpu_price = float(request.form['cpu_price'])
+        policy.ram_price_gb = float(request.form['ram_price_gb'])
+        policy.ssd_price_gb = float(request.form['ssd_price_gb'])
+        policy.hdd_price_gb = float(request.form['hdd_price_gb'])
+        policy.backup_price_gb = float(request.form['backup_price_gb'])
+        db.session.commit()
+        flash("Глобальные базовые тарифы успешно обновлены!", "success")
+        return redirect(url_for('pricing'))
+
+    clusters_data, standalone_hosts, backup_servers_data, total_vms_revenue, total_quotas_revenue = _build_pricing_data(policy)
+
     return render_template('pricing.html', 
                            policy=policy, 
                            clusters_data=clusters_data,
@@ -1001,6 +1358,100 @@ def pricing():
                            backup_servers_data=backup_servers_data,
                            total_vms_revenue=round(total_vms_revenue, 2),
                            total_quotas_revenue=round(total_quotas_revenue, 2))
+
+
+@app.route('/pricing/export/csv')
+@login_required
+def export_pricing_csv():
+    import csv
+    import io
+    policy = PricingPolicy.query.first()
+    clusters_data, standalone_hosts, backup_servers_data, total_vms_revenue, total_quotas_revenue = _build_pricing_data(policy)
+
+    output = io.StringIO()
+    output.write('\ufeff')  # UTF-8 BOM для Excel
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+
+    writer.writerow([
+        'Раздел',
+        'Кластер / Сервер',
+        'Клиент / Группа',
+        'Состав / Примечание',
+        'CPU (ядер)',
+        'RAM (ГБ)',
+        'SSD (ГБ)',
+        'HDD (ГБ)',
+        'Квота бэкапа (ГБ)',
+        'Факт бэкапа (ГБ)',
+        'Расчет по тарифу (₸)',
+        'Ручной ценник (₸)',
+        'Итоговый доход (₸)',
+        'Расход хоста на клиента (₸)',
+        'Прибыль (₸)',
+        'Рентабельность (%)'
+    ])
+
+    all_hosts = []
+    for c_data in clusters_data.values():
+        cluster_name = c_data['cluster'].name
+        for h_data in c_data['hosts']:
+            all_hosts.append((f"{cluster_name} / {h_data['server'].name}", h_data))
+    for h_data in standalone_hosts:
+        all_hosts.append((h_data['server'].name, h_data))
+
+    for host_label, h_data in all_hosts:
+        for item in h_data['grouped_items']:
+            writer.writerow([
+                'Вычислительные ресурсы (ВМ)',
+                host_label,
+                item['client_name'],
+                item['note'],
+                item['cpu'],
+                item['ram'],
+                item['ssd'],
+                item['hdd'],
+                '',
+                '',
+                round(item['auto_cost'], 2),
+                round(item['manual_price'], 2) if item['has_manual'] else '',
+                round(item['income'], 2),
+                round(item['expense'], 2),
+                round(item['profit'], 2),
+                round(item['rentability'], 1)
+            ])
+
+    for b_data in backup_servers_data:
+        srv_name = b_data['server'].name
+        for item in b_data['grouped_items']:
+            writer.writerow([
+                'Дисковые квоты (Бэкап)',
+                srv_name,
+                item['client_name'],
+                item['note'],
+                '',
+                '',
+                '',
+                '',
+                item['allocated_quota'],
+                item['actual_usage'],
+                round(item['auto_cost'], 2),
+                round(item['manual_price'], 2) if item['has_manual'] else '',
+                round(item['current_cost'], 2),
+                '',
+                '',
+                ''
+            ])
+
+    writer.writerow([])
+    writer.writerow(['ИТОГО ДОХОД ВМ (₸)', '', '', '', '', '', '', '', '', '', '', '', round(total_vms_revenue, 2), '', '', ''])
+    writer.writerow(['ИТОГО ДОХОД КВОТ (₸)', '', '', '', '', '', '', '', '', '', '', '', round(total_quotas_revenue, 2), '', '', ''])
+    writer.writerow(['ОБЩАЯ ВЫРУЧКА (₸)', '', '', '', '', '', '', '', '', '', '', '', round(total_vms_revenue + total_quotas_revenue, 2), '', '', ''])
+
+    response = make_response(output.getvalue())
+    filename = f"finansovyi_otchet_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    return response
 
 @app.route('/server/pricing/update', methods=['POST'])
 @login_required
@@ -1074,9 +1525,13 @@ def update_manual_price():
         vm.manual_price = manual_price
     elif item_type == 'quota_group':
         client_name = request.form.get('client_name')
+        server_id = int(request.form.get('server_id', 0) or 0)
         if client_name:
-            # Ищем все квоты с этим комментарием
-            quotas = CompanyQuota.query.all()
+            # Ищем все видимые квоты с этим комментарием на конкретном бэкап-сервере
+            query = CompanyQuota.query.filter_by(is_hidden=False)
+            if server_id:
+                query = query.filter_by(server_id=server_id)
+            quotas = query.all()
             target_quotas = [q for q in quotas if q.comment and q.comment.strip() == client_name.strip()]
             
             if target_quotas:
@@ -1346,7 +1801,7 @@ def save_sync_interval():
 
 # -------------------- API Синхронизации --------------------
 
-@app.route('/api/sync/<int:server_id>')
+@app.route('/api/sync/<int:server_id>', methods=['GET', 'POST'])
 def sync_server(server_id):
     # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
     if not sync_access_allowed():
@@ -1386,7 +1841,7 @@ def sync_server(server_id):
         db.session.commit()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/sync/servers')
+@app.route('/api/sync/servers', methods=['GET', 'POST'])
 def sync_servers_list():
     # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
     if not sync_access_allowed():
@@ -1397,7 +1852,7 @@ def sync_servers_list():
         'servers': [{'id': s.id, 'name': s.name, 'type': s.type} for s in servers]
     })
 
-@app.route('/api/sync/all')
+@app.route('/api/sync/all', methods=['GET', 'POST'])
 def sync_all():
     # Доступ: сессия admin/financier или cron-запрос с токеном (X-Sync-Token / ?token=)
     if not sync_access_allowed():
@@ -1497,12 +1952,17 @@ def scheduled_sync_all():
         except Exception as e:
             print(f"[{datetime.now()}] Ошибка фоновой автосинхронизации: {e}")
 
+_scheduler_lock_file = None
+
 def start_scheduler():
+    global _scheduler_lock_file
     try:
         import fcntl
         try:
-            f = open('.scheduler.lock', 'wb')
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.makedirs(app.instance_path, exist_ok=True)
+            lock_path = os.path.join(app.instance_path, '.scheduler.lock')
+            _scheduler_lock_file = open(lock_path, 'wb')
+            fcntl.flock(_scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             
             scheduler = BackgroundScheduler(daemon=True)
             # Запускаем проверку каждые 5 минут

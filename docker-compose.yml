@@ -10,7 +10,20 @@ services:
       # Важно: монтируем папку с базой данных SQLite на хост, чтобы данные сохранялись при перезапуске контейнера
       - ./instance:/app/instance
     restart: always
+    env_file:
+      - .env
     environment:
       - FLASK_ENV=production
-      # Рекомендуется переопределить секретный ключ в целях безопасности
-      - SECRET_KEY=srv_control_secure_token_key_change_me_in_prod
+      # Рекомендуется переопределить секретный ключ в .env в целях безопасности
+      - SECRET_KEY=${SECRET_KEY:-srv_control_secure_token_key_change_me_in_prod}
+      - LDAP_ENABLED=${LDAP_ENABLED:-false}
+      - LDAP_SERVER=${LDAP_SERVER:-}
+      - LDAP_DOMAIN=${LDAP_DOMAIN:-}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:-}
+      - LDAP_BIND_USER=${LDAP_BIND_USER:-}
+      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD:-}
+      - LDAP_REQUIRED_GROUP=${LDAP_REQUIRED_GROUP:-}
+      - LDAP_ADMIN_GROUP=${LDAP_ADMIN_GROUP:-}
+      - LDAP_FINANCIER_GROUP=${LDAP_FINANCIER_GROUP:-}
+      - LDAP_ADMIN_USERS=${LDAP_ADMIN_USERS:-}
+      - LDAP_NESTED_GROUPS=${LDAP_NESTED_GROUPS:-true}

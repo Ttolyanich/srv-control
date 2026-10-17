@@ -191,10 +191,10 @@
                             <td><span class="badge badge-unknown" style="text-transform: uppercase;">{{ s.type }}</span></td>
                             <td style="font-family: monospace;">{{ s.ip_address or 'Локальный' }}</td>
                             <td style="text-align: right; display: flex; justify-content: flex-end; gap: 8px;">
-                                <button class="btn btn-secondary btn-sm" onclick="openEditServerModal({{ s.id }}, '{{ s.name }}', '{{ s.ip_address or '' }}', '{{ s.type }}', {{ s.cpu }}, {{ s.ram }}, {{ s.ssd }}, {{ s.hdd }}, '{{ s.sync_config.username if s.sync_config else '' }}', '{{ s.sync_config.extra_param if s.sync_config else '' }}', '{{ s.backup_path or '/' }}')">
+                                <button class="btn btn-secondary btn-sm" onclick='openEditServerModal({{ s.id }}, {{ s.name | tojson }}, {{ (s.ip_address or "") | tojson }}, {{ s.type | tojson }}, {{ s.cpu }}, {{ s.ram }}, {{ s.ssd }}, {{ s.hdd }}, {{ (s.sync_config.username if s.sync_config else "") | tojson }}, {{ (s.sync_config.extra_param if s.sync_config else "") | tojson }}, {{ (s.backup_path or "/") | tojson }})'>
                                     Изменить
                                 </button>
-                                 <form action="{{ url_for('delete_server', server_id=s.id) }}" method="POST" onsubmit="event.preventDefault(); showConfirmDeleteModal(this, 'Отправить сервер «{{ s.name }}» в архив?');">
+                                 <form action="{{ url_for('delete_server', server_id=s.id) }}" method="POST" onsubmit='event.preventDefault(); showConfirmDeleteModal(this, {{ ("Отправить сервер «" ~ s.name ~ "» в архив?") | tojson }});'>
                                      <input type="hidden" name="action" value="soft">
                                      <button type="submit" class="btn btn-danger btn-sm">В архив</button>
                                  </form>
@@ -293,7 +293,7 @@
                                         Восстановить
                                     </button>
                                 </form>
-                                 <form action="{{ url_for('delete_server', server_id=s.id) }}" method="POST" onsubmit="event.preventDefault(); showConfirmDeleteModal(this, 'Удалить сервер «{{ s.name }}» окончательно? Все связанные ВМ или квоты будут стерты навсегда!');">
+                                 <form action="{{ url_for('delete_server', server_id=s.id) }}" method="POST" onsubmit='event.preventDefault(); showConfirmDeleteModal(this, {{ ("Удалить сервер «" ~ s.name ~ "» окончательно? Все связанные ВМ или квоты будут стерты навсегда!") | tojson }});'>
                                      <input type="hidden" name="action" value="permanent">
                                      <button type="submit" class="btn btn-danger btn-sm">Удалить навсегда</button>
                                  </form>
