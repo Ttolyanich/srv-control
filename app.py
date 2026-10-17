@@ -78,6 +78,7 @@ LDAP_CONFIG = {
     'admin_group': (os.environ.get('LDAP_ADMIN_GROUP') or os.environ.get('AD_ADMIN_GROUP') or '').strip(),
     'financier_group': (os.environ.get('LDAP_FINANCIER_GROUP') or os.environ.get('AD_FINANCIER_GROUP') or '').strip(),
     'admin_users': [u.strip().lower() for u in (os.environ.get('LDAP_ADMIN_USERS') or os.environ.get('AD_ADMIN_USERS') or '').split(',') if u.strip()],
+    'financier_users': [u.strip().lower() for u in (os.environ.get('LDAP_FINANCIER_USERS') or os.environ.get('AD_FINANCIER_USERS') or '').split(',') if u.strip()],
     'nested_groups': _env_bool('LDAP_NESTED_GROUPS', 'AD_NESTED_GROUPS', True),
 }
 
@@ -347,12 +348,11 @@ def authenticate_ldap(identifier, password):
         # Шаг 4: Определение роли из AD (если применимо)
         ad_role = None
         admin_users_list = LDAP_CONFIG['admin_users']
-        if (clean_user.lower() in admin_users_list or
-                resolved_email.lower() in admin_users_list or
-                clean_id.lower() in admin_users_list or
-                (admin_group and is_member_of_group(admin_group))):
+        financier_users_list = LDAP_CONFIG['financier_users']
+        user_candidates = {clean_user.lower(), resolved_email.lower(), clean_id.lower()}
+        if (user_candidates & set(admin_users_list)) or (admin_group and is_member_of_group(admin_group)):
             ad_role = 'admin'
-        elif financier_group and is_member_of_group(financier_group):
+        elif (user_candidates & set(financier_users_list)) or (financier_group and is_member_of_group(financier_group)):
             ad_role = 'financier'
 
         return True, resolved_email, ad_role, display_name, None

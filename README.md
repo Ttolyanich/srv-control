@@ -63,7 +63,8 @@
 | `LDAP_REQUIRED_GROUP` | CN или DN группы AD, членство в которой обязательно для входа | — |
 | `LDAP_ADMIN_GROUP` | CN или DN группы AD для автоматической выдачи роли `admin` | — |
 | `LDAP_FINANCIER_GROUP` | CN или DN группы AD для автоматической выдачи роли `financier` | — |
-| `LDAP_ADMIN_USERS` | Список email/логинов через запятую для роли `admin` | — |
+| `LDAP_ADMIN_USERS` | Список email/логинов через запятую для выдачи роли `admin` (без групп AD) | — |
+| `LDAP_FINANCIER_USERS` | Список email/логинов через запятую для выдачи роли `financier` (без групп AD) | — |
 | `LDAP_NESTED_GROUPS` | Проверять вложенные группы AD (`1.2.840.113556.1.4.1941`) | `true` |
 
 ### 🔐 Как работает авторизация через Active Directory (LDAP)
