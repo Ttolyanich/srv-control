@@ -347,12 +347,26 @@ def authenticate_ldap(identifier, password):
 
         # Шаг 4: Определение роли из AD (если применимо)
         ad_role = None
-        admin_users_list = LDAP_CONFIG['admin_users']
-        financier_users_list = LDAP_CONFIG['financier_users']
+        admin_users_set = set()
+        for u in LDAP_CONFIG['admin_users']:
+            admin_users_set.add(u.strip().lower())
+            if "@" in u:
+                admin_users_set.add(u.split("@")[0].strip().lower())
+        financier_users_set = set()
+        for u in LDAP_CONFIG['financier_users']:
+            financier_users_set.add(u.strip().lower())
+            if "@" in u:
+                financier_users_set.add(u.split("@")[0].strip().lower())
+
         user_candidates = {clean_user.lower(), resolved_email.lower(), clean_id.lower()}
-        if (user_candidates & set(admin_users_list)) or (admin_group and is_member_of_group(admin_group)):
+        if "@" in clean_user:
+            user_candidates.add(clean_user.split("@")[0].lower())
+        if "@" in resolved_email:
+            user_candidates.add(resolved_email.split("@")[0].lower())
+
+        if (user_candidates & admin_users_set) or (admin_group and is_member_of_group(admin_group)):
             ad_role = 'admin'
-        elif (user_candidates & set(financier_users_list)) or (financier_group and is_member_of_group(financier_group)):
+        elif (user_candidates & financier_users_set) or (financier_group and is_member_of_group(financier_group)):
             ad_role = 'financier'
 
         return True, resolved_email, ad_role, display_name, None
